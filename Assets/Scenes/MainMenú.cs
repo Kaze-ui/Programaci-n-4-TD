@@ -3,11 +3,11 @@ using UnityEngine.SceneManagement;
 
 public class MainMenu : MonoBehaviour
 {
-    [SerializeField] private string MenúPrincipal = "Game";
+    [SerializeField] private string gameSceneName = "InGame";
 
     public void PlayGame()
     {
-        SceneManager.LoadScene(MenúPrincipal    );
+        SceneManager.LoadScene(gameSceneName);
     }
 
     public void QuitGame()

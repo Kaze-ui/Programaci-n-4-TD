@@ -40,10 +40,16 @@ public class GameOverManager : MonoBehaviour
     private float currentRunTime;
     private int currentRunScore;
 
+    void Awake()
+    {
+        // Se carga acá (no en Start) porque OnEnable puede dispararse antes que Start
+        // la primera vez que el panel se activa, y necesitamos "leaderboard" ya listo.
+        LoadLeaderboard();
+    }
+
     void Start()
     {
         confirmNameButton.onClick.AddListener(ConfirmName);
-        LoadLeaderboard();
     }
 
     void OnEnable()
@@ -56,6 +62,7 @@ public class GameOverManager : MonoBehaviour
     // Llamar esto desde el sistema de gameplay cuando termina la partida (victoria o derrota)
     public void SetResults(int score, float timeSeconds)
     {
+        gameObject.SetActive(true);
         currentRunScore = score;
         currentRunTime = timeSeconds;
     }
@@ -125,11 +132,13 @@ public class GameOverManager : MonoBehaviour
 
     public void RestartGame()
     {
+        Time.timeScale = 1f;
         SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
     }
 
     public void GoToMainMenu()
     {
+        Time.timeScale = 1f;
         SceneManager.LoadScene(mainMenuSceneName);
     }
 }
