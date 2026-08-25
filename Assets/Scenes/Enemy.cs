@@ -37,6 +37,11 @@ public class Enemy : MonoBehaviour
 
     void Die()
     {
+        if (SoundController.Instance != null)
+        {
+            SoundController.Instance.PlayEnemyDeathSfx();
+        }
+
         if (GameManager.Instance != null)
         {
             GameManager.Instance.AddScore(scoreValue);

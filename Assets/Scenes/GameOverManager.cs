@@ -31,7 +31,6 @@ public class GameOverManager : MonoBehaviour
 
     [Header("Post registro")]
     [SerializeField] private GameObject postSubmitGroup;
-    [SerializeField] private string mainMenuSceneName = "MainMenu";
 
     private const string SaveKey = "LeaderboardData";
     private const int MaxEntries = 10;
@@ -132,13 +131,11 @@ public class GameOverManager : MonoBehaviour
 
     public void RestartGame()
     {
-        Time.timeScale = 1f;
-        SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
+        SceneController.Instance.RestartCurrentScene();
     }
 
     public void GoToMainMenu()
     {
-        Time.timeScale = 1f;
-        SceneManager.LoadScene(mainMenuSceneName);
+        SceneController.Instance.LoadMainMenuScene();
     }
 }

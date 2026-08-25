@@ -136,6 +136,11 @@ public class GameManager : MonoBehaviour
             enemySpawner.StopSpawning();
         }
 
+        if (SoundController.Instance != null)
+        {
+            SoundController.Instance.PlayGameOverSfx();
+        }
+
         if (gameOverManager != null)
         {
             gameOverManager.SetResults(currentScore, elapsedTime);

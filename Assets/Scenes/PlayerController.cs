@@ -37,7 +37,9 @@ public class PlayerController : MonoBehaviour
 
     void HandleShooting()
     {
-        if (Input.GetKey(KeyCode.Space) && Time.time >= nextFireTime)
+        bool wantsToShoot = Input.GetKey(KeyCode.Space) || Input.GetButton("Fire1");
+
+        if (wantsToShoot && Time.time >= nextFireTime)
         {
             nextFireTime = Time.time + fireRate;
             Shoot();
@@ -50,12 +52,22 @@ public class PlayerController : MonoBehaviour
         {
             Instantiate(bulletPrefab, firePoint.position, Quaternion.identity);
         }
+
+        if (SoundController.Instance != null)
+        {
+            SoundController.Instance.PlayShootSfx();
+        }
     }
 
     public void TakeDamage(int amount)
     {
         currentHealth -= amount;
         currentHealth = Mathf.Max(currentHealth, 0);
+
+        if (SoundController.Instance != null)
+        {
+            SoundController.Instance.PlayPlayerHitSfx();
+        }
 
         if (GameManager.Instance != null)
         {
