@@ -12,6 +12,11 @@ public class BossController : MonoBehaviour, IDamageable
     public float maxX = 400f;
     private int moveDirection = 1;
 
+    [Header("Entrada (baja desde arriba antes de patrullar)")]
+    public float entrySpeed = 100f;
+    public float targetY = 250f; // altura en la que se queda a patrullar
+    private bool hasEntered = false;
+
     [Header("Daño por contacto")]
     public int contactDamage = 2;
     public float contactCooldown = 1f;
@@ -27,7 +32,27 @@ public class BossController : MonoBehaviour, IDamageable
 
     void Update()
     {
-        Patrol();
+        if (!hasEntered)
+        {
+            Enter();
+        }
+        else
+        {
+            Patrol();
+        }
+    }
+
+    void Enter()
+    {
+        transform.position += Vector3.down * entrySpeed * Time.deltaTime;
+
+        if (transform.position.y <= targetY)
+        {
+            Vector3 pos = transform.position;
+            pos.y = targetY; // evita pasarse de largo
+            transform.position = pos;
+            hasEntered = true;
+        }
     }
 
     void Patrol()

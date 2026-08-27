@@ -13,7 +13,7 @@ public class SceneController : MonoBehaviour
     {
         Instance = this;
     }
-           public void LoadGameScene(     
+            public void LoadGameScene()
     {
         Time.timeScale = 1f; // por si veníamos de una partida pausada/terminada
         SceneManager.LoadScene(gameSceneName);

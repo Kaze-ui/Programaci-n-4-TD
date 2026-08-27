@@ -25,10 +25,10 @@ public class Bullet : MonoBehaviour
     {
         if (other.CompareTag("Enemy"))
         {
-            Enemy enemy = other.GetComponent<Enemy>();
-            if (enemy != null)
+            IDamageable damageable = other.GetComponent<IDamageable>();
+            if (damageable != null)
             {
-                enemy.TakeDamage(damage);
+                damageable.TakeDamage(damage);
             }
 
             Destroy(gameObject);
