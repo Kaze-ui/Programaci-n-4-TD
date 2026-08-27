@@ -48,13 +48,13 @@ public class GameOverManager : MonoBehaviour
 
     void Start()
     {
-        confirmNameButton.onClick.AddListener(ConfirmName);
+        if (confirmNameButton != null) confirmNameButton.onClick.AddListener(ConfirmName);
     }
 
     void OnEnable()
     {
-        nameEntryGroup.SetActive(true);
-        postSubmitGroup.SetActive(false);
+        if (nameEntryGroup != null) nameEntryGroup.SetActive(true);
+        if (postSubmitGroup != null) postSubmitGroup.SetActive(false);
         RefreshLeaderboardUI();
     }
 

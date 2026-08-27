@@ -32,9 +32,9 @@ public class UpgradeManager : MonoBehaviour
 
     void Start()
     {
-        damageButton.onClick.AddListener(() => TryPurchase(ref damageLevel, damageCostText));
-        speedButton.onClick.AddListener(() => TryPurchase(ref speedLevel, speedCostText));
-        healthButton.onClick.AddListener(() => TryPurchase(ref healthLevel, healthCostText));
+        if (damageButton != null) damageButton.onClick.AddListener(() => TryPurchase(ref damageLevel, damageCostText));
+        if (speedButton != null) speedButton.onClick.AddListener(() => TryPurchase(ref speedLevel, speedCostText));
+        if (healthButton != null) healthButton.onClick.AddListener(() => TryPurchase(ref healthLevel, healthCostText));
     }
 
     private int GetCost(int level)
@@ -46,20 +46,20 @@ public class UpgradeManager : MonoBehaviour
     {
         int cost = GetCost(level);
 
-        if (playerStats.Points >= cost)
+        if (playerStats != null && playerStats.Points >= cost)
         {
             playerStats.SpendPoints(cost);
             level++;
-            costText.text = GetCost(level).ToString();
+            if (costText != null) costText.text = GetCost(level).ToString();
         }
         // si no alcanza, no pasa nada (opcionalmente después le sumamos un feedback visual/sonoro de "no alcanza")
     }
 
     public void RefreshUI()
     {
-        damageCostText.text = GetCost(damageLevel).ToString();
-        speedCostText.text = GetCost(speedLevel).ToString();
-        healthCostText.text = GetCost(healthLevel).ToString();
+        if (damageCostText != null) damageCostText.text = GetCost(damageLevel).ToString();
+        if (speedCostText != null) speedCostText.text = GetCost(speedLevel).ToString();
+        if (healthCostText != null) healthCostText.text = GetCost(healthLevel).ToString();
     }
 
     public int DamageLevel => damageLevel;
