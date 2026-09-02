@@ -9,25 +9,19 @@ public class GameManager : MonoBehaviour
 
     [Header("Referencias")]
     public PlayerController player;
-    public EnemySpawner enemySpawner;
     public HUDManager hudManager;
     public GameOverManager gameOverManager;
+    public WaveController waveController;
 
     [Header("Jefe")]
     public GameObject bossPrefab;
     public Transform bossSpawnPoint;
 
-    [Header("Configuración de la oleada (versión simplificada)")]
-    public int targetScore = 5;       // puntos necesarios para "ganar" esta oleada de prueba
-    public float waveDuration = 60f;  // segundos disponibles para lograrlo
-
     private int currentScore = 0;
-    private float timeRemaining;
-    private float elapsedTime = 0f; // para el tiempo total jugado (leaderboard)
+    private float elapsedTime = 0f;
 
     void Awake()
     {
-        // Patrón singleton: si ya existe una instancia, esta se destruye (evita duplicados)
         if (Instance != null && Instance != this)
         {
             Destroy(gameObject);
@@ -35,7 +29,7 @@ public class GameManager : MonoBehaviour
         }
         Instance = this;
 
-        Time.timeScale = 1f; // por si quedó pausado de una partida anterior
+        Time.timeScale = 1f;
     }
 
     void Start()
@@ -47,23 +41,7 @@ public class GameManager : MonoBehaviour
     {
         if (currentState == GameState.Won || currentState == GameState.Lost) return;
 
-        elapsedTime += Time.deltaTime; // el tiempo total sigue corriendo durante la pelea contra el jefe
-
-        if (currentState != GameState.Playing) return; // el timer de la oleada no aplica durante BossFight
-
-        timeRemaining -= Time.deltaTime;
-
-        if (hudManager != null)
-        {
-            hudManager.UpdateTimer(Mathf.CeilToInt(timeRemaining));
-        }
-
-        if (timeRemaining <= 0f)
-        {
-            // Se acabó el tiempo sin llegar al puntaje objetivo.
-            // (En el sistema final esto pasaría de oleada; por ahora, para esta entrega, es derrota)
-            LoseGame();
-        }
+        elapsedTime += Time.deltaTime;
     }
 
     public void StartGame()
@@ -71,7 +49,6 @@ public class GameManager : MonoBehaviour
         currentState = GameState.Playing;
         currentScore = 0;
         elapsedTime = 0f;
-        timeRemaining = waveDuration;
 
         if (hudManager != null)
         {
@@ -79,19 +56,18 @@ public class GameManager : MonoBehaviour
             int startHealth = player != null ? player.GetCurrentHealth() : 0;
             int startMaxHealth = player != null ? player.maxHealth : 0;
             hudManager.UpdateHealth(startHealth, startMaxHealth);
-            hudManager.UpdateWave(1, 1); // oleada 1 de 1, versión simplificada para esta entrega
-            hudManager.UpdateTimer(Mathf.CeilToInt(timeRemaining));
+            hudManager.UpdateWave(1, 6); // 5 oleadas + jefe
         }
 
-        if (enemySpawner != null)
+        if (waveController != null)
         {
-            enemySpawner.StartSpawning();
+            waveController.StartWaves();
         }
     }
 
     public void AddScore(int amount)
     {
-        if (currentState != GameState.Playing) return;
+        if (currentState == GameState.Won || currentState == GameState.Lost) return;
 
         currentScore += amount;
 
@@ -99,25 +75,32 @@ public class GameManager : MonoBehaviour
         {
             hudManager.UpdateScore(currentScore);
         }
-
-        if (currentScore >= targetScore)
-        {
-            StartBossFight();
-        }
     }
 
-    void StartBossFight()
+    // Usado por el UpgradeManager al comprar una mejora
+    public bool TrySpendPoints(int cost)
     {
-        currentState = GameState.BossFight;
+        if (currentScore < cost) return false;
 
-        if (enemySpawner != null)
-        {
-            enemySpawner.StopSpawning();
-        }
+        currentScore -= cost;
 
         if (hudManager != null)
         {
-            hudManager.UpdateWave(2, 2); // "oleada 2 de 2": la pelea contra el jefe
+            hudManager.UpdateScore(currentScore);
+        }
+
+        return true;
+    }
+
+    public void TriggerBossFight()
+    {
+        if (currentState == GameState.Won || currentState == GameState.Lost) return;
+
+        currentState = GameState.BossFight;
+
+        if (hudManager != null)
+        {
+            hudManager.UpdateWave(6, 6);
         }
 
         if (bossPrefab != null)
@@ -127,7 +110,6 @@ public class GameManager : MonoBehaviour
         }
     }
 
-    // Llamado por BossController cuando el jugador lo derrota
     public void OnBossDefeated(int bonusScore)
     {
         if (currentState != GameState.BossFight) return;
@@ -172,14 +154,8 @@ public class GameManager : MonoBehaviour
 
     void EndGame()
     {
-        Time.timeScale = 0f; // congela el juego (movimiento, disparo, spawns) sin desactivar scripts
+        Time.timeScale = 0f;
 
-        if (enemySpawner != null)
-        {
-            enemySpawner.StopSpawning();
-        }
-
-        // Si el jefe seguía vivo (por ejemplo, el jugador murió durante la pelea), lo limpiamos
         BossController remainingBoss = FindAnyObjectByType<BossController>();
         if (remainingBoss != null)
         {
