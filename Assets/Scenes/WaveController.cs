@@ -46,6 +46,7 @@ public class WaveController : MonoBehaviour
 
     public void StartWaves()
     {
+        EnemyController.ClearReservedPositions();
         currentWaveIndex = 0;
         StartCoroutine(RunWave(currentWaveIndex));
     }
@@ -110,7 +111,13 @@ public class WaveController : MonoBehaviour
         if (prefab == null) return;
 
         Transform spawnPoint = ChooseSpawnPoint(prefab);
-        GameObject obj = Instantiate(prefab, spawnPoint.position, Quaternion.identity);
+
+        // Variación aleatoria en X para que varios enemigos del mismo tier, spawneados
+        // desde el mismo punto, no queden apilados unos encima de otros.
+        float xJitter = Random.Range(-150f, 150f);
+        Vector3 spawnPos = new Vector3(spawnPoint.position.x + xJitter, spawnPoint.position.y, 0f);
+
+        GameObject obj = Instantiate(prefab, spawnPos, Quaternion.identity);
 
         EnemyController ec = obj.GetComponent<EnemyController>();
         if (ec != null)

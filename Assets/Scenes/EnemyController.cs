@@ -20,6 +20,22 @@ public class EnemyController : MonoBehaviour, IDamageable
     public float maxX = 400f;
     public float settleY = 250f; // altura donde se "asienta" tras entrar (Tiers 1-4)
 
+    [Header("Entrada (antes de empezar a disparar)")]
+    public float entrySpeed = 300f; // velocidad de la caída inicial, distinta de moveSpeed (patrulla)
+    public float entryHeightAboveSettle = 400f; // garantiza que SIEMPRE arranque por encima de settleY, sin importar el punto de spawn
+
+    [Header("Reposicionamiento horizontal (solo Tier2)")]
+    public float repositionMinX = -780f;
+    public float repositionMaxX = 2700f;
+    public float repositionSpeed = 300f;
+    public float minSeparationFromOthers = 200f; // distancia mínima en X respecto a otros Tier2 vivos
+
+    // Compartida entre todas las instancias de Tier2: cada una reserva su X elegida acá
+    // para que ninguna otra elija una posición demasiado cercana.
+    private static System.Collections.Generic.List<float> reservedTier2Positions = new System.Collections.Generic.List<float>();
+    private float myReservedX;
+    private bool hasReservedPosition = false;
+
     [Header("Disparo")]
     public GameObject bulletPrefab;
     public GameObject bigBulletPrefab; // solo Tier3
@@ -36,6 +52,15 @@ public class EnemyController : MonoBehaviour, IDamageable
     {
         currentHealth = maxHealth;
 
+        // Sin importar qué punto de spawn le tocó (arriba/izquierda/derecha), lo reposicionamos
+        // en Y para que SIEMPRE arranque por encima de settleY. Así garantizamos que la entrada
+        // sea "cayendo desde arriba" y nunca "subiendo" (que pasaba si el spawn point quedaba
+        // más abajo que settleY). El X se conserva tal cual spawneó.
+        if (tier != EnemyTier.Tier5)
+        {
+            transform.position = new Vector3(transform.position.x, settleY + entryHeightAboveSettle, transform.position.z);
+        }
+
         PlayerController pc = FindAnyObjectByType<PlayerController>();
         if (pc != null) playerTransform = pc.transform;
 
@@ -51,12 +76,12 @@ public class EnemyController : MonoBehaviour, IDamageable
             yield break;
         }
 
-        // Entrada: converge hacia una posición dentro del área jugable, sin importar si spawneó
-        // arriba, a la izquierda o a la derecha.
+        // Entrada: converge en diagonal (X e Y a la vez) hacia una posición dentro del área
+        // jugable, siempre bajando (garantizado por el Start() de arriba).
         Vector3 target = new Vector3(Mathf.Clamp(transform.position.x, minX, maxX), settleY, 0f);
         while (Vector3.Distance(transform.position, target) > 5f)
         {
-            transform.position = Vector3.MoveTowards(transform.position, target, moveSpeed * Time.deltaTime);
+            transform.position = Vector3.MoveTowards(transform.position, target, entrySpeed * Time.deltaTime);
             yield return null;
         }
 
@@ -67,7 +92,7 @@ public class EnemyController : MonoBehaviour, IDamageable
                 StartCoroutine(FireTier1());
                 break;
             case EnemyTier.Tier2:
-                StartCoroutine(FireTier2());
+                StartCoroutine(RepositionThenFireTier2());
                 break;
             case EnemyTier.Tier3:
                 StartCoroutine(PatrolLoop());
@@ -112,6 +137,54 @@ public class EnemyController : MonoBehaviour, IDamageable
             yield return new WaitForSeconds(fireCadence);
             FireBullet(bulletPrefab, 250f);
         }
+    }
+
+    IEnumerator RepositionThenFireTier2()
+    {
+        float targetX = PickNonOverlappingX();
+        myReservedX = targetX;
+        hasReservedPosition = true;
+        reservedTier2Positions.Add(myReservedX);
+
+        Vector3 target = new Vector3(targetX, transform.position.y, 0f);
+
+        while (Vector3.Distance(transform.position, target) > 5f)
+        {
+            transform.position = Vector3.MoveTowards(transform.position, target, repositionSpeed * Time.deltaTime);
+            yield return null;
+        }
+
+        StartCoroutine(FireTier2());
+    }
+
+    // Intenta encontrar una X que esté a más de minSeparationFromOthers de cualquier
+    // otro Tier2 que ya haya reservado posición. Si después de varios intentos no
+    // encuentra una libre (caso raro, campo muy lleno), devuelve la última candidata igual.
+    float PickNonOverlappingX()
+    {
+        const int maxAttempts = 20;
+
+        for (int attempt = 0; attempt < maxAttempts; attempt++)
+        {
+            float candidate = Random.Range(repositionMinX, repositionMaxX);
+            bool tooClose = false;
+
+            foreach (float reserved in reservedTier2Positions)
+            {
+                if (Mathf.Abs(candidate - reserved) < minSeparationFromOthers)
+                {
+                    tooClose = true;
+                    break;
+                }
+            }
+
+            if (!tooClose)
+            {
+                return candidate;
+            }
+        }
+
+        return Random.Range(repositionMinX, repositionMaxX);
     }
 
     IEnumerator FireTier2()
@@ -163,6 +236,23 @@ public class EnemyController : MonoBehaviour, IDamageable
             eb.speed = speed;
             eb.direction = Vector3.down;
         }
+    }
+
+    void OnDestroy()
+    {
+        // Libera su lugar en el campo de batalla para que otros Tier2 puedan usarlo,
+        // sin importar si murió por una bala, terminó la partida, o se cambió de escena.
+        if (hasReservedPosition)
+        {
+            reservedTier2Positions.Remove(myReservedX);
+        }
+    }
+
+    // Llamado por WaveController al arrancar la Oleada 1, por si quedó algo residual
+    // de una partida anterior en la misma sesión de Play.
+    public static void ClearReservedPositions()
+    {
+        reservedTier2Positions.Clear();
     }
 
     public void TakeDamage(int amount)

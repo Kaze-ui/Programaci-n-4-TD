@@ -44,6 +44,7 @@ public class UpgradeManager : MonoBehaviour
 
     void Start()
     {
+        Debug.Log("[DEBUG] UpgradeManager.Start() ejecutado"); // TEMPORAL, borrar después
         if (damageButton != null) damageButton.onClick.AddListener(PurchaseDamage);
         if (speedButton != null) speedButton.onClick.AddListener(PurchaseSpeed);
         if (healthButton != null) healthButton.onClick.AddListener(PurchaseHealth);
@@ -57,6 +58,7 @@ public class UpgradeManager : MonoBehaviour
 
     private void PurchaseDamage()
     {
+        Debug.Log("[DEBUG] PurchaseDamage() llamado"); // TEMPORAL, borrar después
         int cost = GetCost(damageLevel);
         if (GameManager.Instance == null || !GameManager.Instance.TrySpendPoints(cost)) return;
 

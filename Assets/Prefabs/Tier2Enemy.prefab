@@ -186,6 +186,12 @@ MonoBehaviour:
   minX: -780
   maxX: 2700
   settleY: 1300
+  entrySpeed: 300
+  entryHeightAboveSettle: 400
+  repositionMinX: -780
+  repositionMaxX: 2700
+  repositionSpeed: 300
+  minSeparationFromOthers: 400
   bulletPrefab: {fileID: 5141576225277623232, guid: 2917fe9a5ce2d0540a4217361be42aff, type: 3}
   bigBulletPrefab: {fileID: 0}
   laserPrefab: {fileID: 0}
