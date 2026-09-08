@@ -24,14 +24,14 @@ public class EnemyController : MonoBehaviour, IDamageable
     public float entrySpeed = 300f; // velocidad de la caída inicial, distinta de moveSpeed (patrulla)
     public float entryHeightAboveSettle = 400f; // garantiza que SIEMPRE arranque por encima de settleY, sin importar el punto de spawn
 
-    [Header("Reposicionamiento horizontal (solo Tier2)")]
+    [Header("Reposicionamiento horizontal (Tier 1 y Tier 2)")]
     public float repositionMinX = -780f;
     public float repositionMaxX = 2700f;
     public float repositionSpeed = 300f;
-    public float minSeparationFromOthers = 200f; // distancia mínima en X respecto a otros Tier2 vivos
+    public float minSeparationFromOthers = 200f; // distancia mínima en X respecto a otros enemigos vivos del mismo tier
 
-    // Compartida entre todas las instancias de Tier2: cada una reserva su X elegida acá
-    // para que ninguna otra elija una posición demasiado cercana.
+    // Listas compartidas entre instancias para que ninguna otra elija una posición demasiado cercana
+    private static System.Collections.Generic.List<float> reservedTier1Positions = new System.Collections.Generic.List<float>();
     private static System.Collections.Generic.List<float> reservedTier2Positions = new System.Collections.Generic.List<float>();
     private float myReservedX;
     private bool hasReservedPosition = false;
@@ -76,9 +76,12 @@ public class EnemyController : MonoBehaviour, IDamageable
             yield break;
         }
 
-        // Entrada: converge en diagonal (X e Y a la vez) hacia una posición dentro del área
-        // jugable, siempre bajando (garantizado por el Start() de arriba).
-        Vector3 target = new Vector3(Mathf.Clamp(transform.position.x, minX, maxX), settleY, 0f);
+        // Entrada: los enemigos bajan hacia settleY. Para Tier1, descienden verticalmente
+        // (manteniendo su X) hasta alcanzar settleY antes de reposicionarse horizontalmente.
+        Vector3 target = (tier == EnemyTier.Tier1)
+            ? new Vector3(transform.position.x, settleY, 0f)
+            : new Vector3(Mathf.Clamp(transform.position.x, minX, maxX), settleY, 0f);
+
         while (Vector3.Distance(transform.position, target) > 5f)
         {
             transform.position = Vector3.MoveTowards(transform.position, target, entrySpeed * Time.deltaTime);
@@ -88,8 +91,7 @@ public class EnemyController : MonoBehaviour, IDamageable
         switch (tier)
         {
             case EnemyTier.Tier1:
-                StartCoroutine(PatrolLoop());
-                StartCoroutine(FireTier1());
+                StartCoroutine(RepositionThenFireTier1());
                 break;
             case EnemyTier.Tier2:
                 StartCoroutine(RepositionThenFireTier2());
@@ -139,9 +141,27 @@ public class EnemyController : MonoBehaviour, IDamageable
         }
     }
 
+    IEnumerator RepositionThenFireTier1()
+    {
+        float targetX = PickNonOverlappingX(reservedTier1Positions);
+        myReservedX = targetX;
+        hasReservedPosition = true;
+        reservedTier1Positions.Add(myReservedX);
+
+        Vector3 target = new Vector3(targetX, transform.position.y, 0f);
+
+        while (Vector3.Distance(transform.position, target) > 5f)
+        {
+            transform.position = Vector3.MoveTowards(transform.position, target, repositionSpeed * Time.deltaTime);
+            yield return null;
+        }
+
+        StartCoroutine(FireTier1());
+    }
+
     IEnumerator RepositionThenFireTier2()
     {
-        float targetX = PickNonOverlappingX();
+        float targetX = PickNonOverlappingX(reservedTier2Positions);
         myReservedX = targetX;
         hasReservedPosition = true;
         reservedTier2Positions.Add(myReservedX);
@@ -158,18 +178,19 @@ public class EnemyController : MonoBehaviour, IDamageable
     }
 
     // Intenta encontrar una X que esté a más de minSeparationFromOthers de cualquier
-    // otro Tier2 que ya haya reservado posición. Si después de varios intentos no
-    // encuentra una libre (caso raro, campo muy lleno), devuelve la última candidata igual.
-    float PickNonOverlappingX()
+    // otro enemigo del mismo tier que ya haya reservado posición.
+    // Si tras varios intentos aleatorios no encuentra una libre (campo muy poblado),
+    // busca el espacio o hueco más grande entre las posiciones existentes para evitar superposiciones.
+    float PickNonOverlappingX(System.Collections.Generic.List<float> reservedPositions)
     {
-        const int maxAttempts = 20;
+        const int maxAttempts = 50;
 
         for (int attempt = 0; attempt < maxAttempts; attempt++)
         {
             float candidate = Random.Range(repositionMinX, repositionMaxX);
             bool tooClose = false;
 
-            foreach (float reserved in reservedTier2Positions)
+            foreach (float reserved in reservedPositions)
             {
                 if (Mathf.Abs(candidate - reserved) < minSeparationFromOthers)
                 {
@@ -182,6 +203,42 @@ public class EnemyController : MonoBehaviour, IDamageable
             {
                 return candidate;
             }
+        }
+
+        // Fallback inteligente: si la pantalla está llena y ningún punto aleatorio cumple la distancia mínima,
+        // colocamos el enemigo en el centro del intervalo más amplio disponible.
+        if (reservedPositions.Count > 0)
+        {
+            System.Collections.Generic.List<float> sorted = new System.Collections.Generic.List<float>(reservedPositions);
+            sorted.Sort();
+
+            float bestX = (repositionMinX + repositionMaxX) * 0.5f;
+            float maxGap = 0f;
+
+            float leftGap = sorted[0] - repositionMinX;
+            if (leftGap > maxGap)
+            {
+                maxGap = leftGap;
+                bestX = repositionMinX + leftGap * 0.5f;
+            }
+
+            for (int i = 0; i < sorted.Count - 1; i++)
+            {
+                float gap = sorted[i + 1] - sorted[i];
+                if (gap > maxGap)
+                {
+                    maxGap = gap;
+                    bestX = sorted[i] + gap * 0.5f;
+                }
+            }
+
+            float rightGap = repositionMaxX - sorted[sorted.Count - 1];
+            if (rightGap > maxGap)
+            {
+                bestX = sorted[sorted.Count - 1] + rightGap * 0.5f;
+            }
+
+            return bestX;
         }
 
         return Random.Range(repositionMinX, repositionMaxX);
@@ -240,11 +297,18 @@ public class EnemyController : MonoBehaviour, IDamageable
 
     void OnDestroy()
     {
-        // Libera su lugar en el campo de batalla para que otros Tier2 puedan usarlo,
+        // Libera su lugar en el campo de batalla para que otros enemigos puedan usarlo,
         // sin importar si murió por una bala, terminó la partida, o se cambió de escena.
         if (hasReservedPosition)
         {
-            reservedTier2Positions.Remove(myReservedX);
+            if (tier == EnemyTier.Tier1)
+            {
+                reservedTier1Positions.Remove(myReservedX);
+            }
+            else if (tier == EnemyTier.Tier2)
+            {
+                reservedTier2Positions.Remove(myReservedX);
+            }
         }
     }
 
@@ -252,6 +316,7 @@ public class EnemyController : MonoBehaviour, IDamageable
     // de una partida anterior en la misma sesión de Play.
     public static void ClearReservedPositions()
     {
+        reservedTier1Positions.Clear();
         reservedTier2Positions.Clear();
     }
 
