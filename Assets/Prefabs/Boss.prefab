@@ -84,7 +84,7 @@ SpriteRenderer:
   m_SortingLayer: 0
   m_SortingOrder: 0
   m_MaskInteraction: 0
-  m_Sprite: {fileID: 7482667652216324306, guid: 311925a002f4447b3a28927169b83ea6, type: 3}
+  m_Sprite: {fileID: 21300000, guid: a1010101010101010101010101010106, type: 3}
   m_Color: {r: 1, g: 1, b: 1, a: 1}
   m_FlipX: 0
   m_FlipY: 0
@@ -180,11 +180,25 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::BossController
   maxHealth: 25
-  moveSpeed: 500
-  minX: 140
-  maxX: 1800
+  moveSpeed: 175
+  targetY: 1100
   entrySpeed: 150
-  targetY: 800
+  bulletPrefab: {fileID: 5141576225277623232, guid: 2917fe9a5ce2d0540a4217361be42aff, type: 3}
+  bigBulletPrefab: {fileID: 2857514954453701257, guid: 4f5a05ee506027744a8d63a9b06f8098, type: 3}
+  laserPrefab: {fileID: 1433648432647939853, guid: 0aa2282bfd8b5394f90e54adffd05761, type: 3}
+  telegraphPrefab: {fileID: 3901847192837461920, guid: d71a8f3b49e211efa8210242ac120002, type: 3}
+  tier4Prefab: {fileID: 5092116378913370737, guid: 6c8b3d1b93e2db843ac5702764264c31, type: 3}
+  smallBulletCadence: 1.02
+  smallBulletSpeed: 400
+  smallBulletCount: 12
+  homingTurnSpeed: 100
+  bigBulletCadence: 1
+  bigBulletSpeed: 288
+  bigBulletLifetime: 40
+  laserWarningDuration: 3
+  laserActiveDuration: 3
+  laserWidth: 150
+  laserLength: 3500
   contactDamage: 2
   contactCooldown: 1
   scoreValue: 10

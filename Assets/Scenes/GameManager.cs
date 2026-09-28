@@ -5,7 +5,8 @@ public class GameManager : MonoBehaviour
     public static GameManager Instance { get; private set; }
 
     public enum GameState { Playing, BossFight, Won, Lost }
-    private GameState currentState;
+    public GameState currentState { get; private set; }
+    public bool IsInBossFight => currentState == GameState.BossFight;
 
     [Header("Referencias")]
     public PlayerController player;
@@ -34,7 +35,17 @@ public class GameManager : MonoBehaviour
 
     void Start()
     {
+        EnsureBackground();
         StartGame();
+    }
+
+    private void EnsureBackground()
+    {
+        if (FindFirstObjectByType<BackgroundScroller>() == null)
+        {
+            GameObject bgObj = new GameObject("BackgroundScroller");
+            bgObj.AddComponent<BackgroundScroller>();
+        }
     }
 
     void Update()
@@ -56,7 +67,8 @@ public class GameManager : MonoBehaviour
             int startHealth = player != null ? player.GetCurrentHealth() : 0;
             int startMaxHealth = player != null ? player.maxHealth : 0;
             hudManager.UpdateHealth(startHealth, startMaxHealth);
-            hudManager.UpdateWave(1, 6); // 5 oleadas + jefe
+            int maxWaves = waveController != null ? waveController.waves.Length : 5;
+            hudManager.UpdateWave(1, maxWaves);
         }
 
         if (waveController != null)
@@ -100,7 +112,9 @@ public class GameManager : MonoBehaviour
 
         if (hudManager != null)
         {
-            hudManager.UpdateWave(6, 6);
+            hudManager.SetWaveText("¡LEVIATÁN NODRIZA!");
+            hudManager.ShowWaveBanner("¡ALERTA MÁXIMA!", "¡NAVE NODRIZA DETECTADA!");
+            hudManager.UpdateTimer(0f);
         }
 
         if (bossPrefab != null)
