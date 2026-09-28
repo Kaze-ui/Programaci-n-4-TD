@@ -41,7 +41,7 @@ public class GameManager : MonoBehaviour
 
     private void EnsureBackground()
     {
-        if (FindFirstObjectByType<BackgroundScroller>() == null)
+        if (FindAnyObjectByType<BackgroundScroller>() == null)
         {
             GameObject bgObj = new GameObject("BackgroundScroller");
             bgObj.AddComponent<BackgroundScroller>();
@@ -61,11 +61,16 @@ public class GameManager : MonoBehaviour
         currentScore = 0;
         elapsedTime = 0f;
 
+        if (SoundController.Instance != null)
+        {
+            SoundController.Instance.PlayGameMusic();
+        }
+
         if (hudManager != null)
         {
             hudManager.UpdateScore(currentScore);
-            int startHealth = player != null ? player.GetCurrentHealth() : 0;
-            int startMaxHealth = player != null ? player.maxHealth : 0;
+            long startHealth = player != null ? player.GetCurrentHealth() : 0L;
+            long startMaxHealth = player != null ? player.maxHealth : 0L;
             hudManager.UpdateHealth(startHealth, startMaxHealth);
             int maxWaves = waveController != null ? waveController.waves.Length : 5;
             hudManager.UpdateWave(1, maxWaves);
@@ -138,13 +143,18 @@ public class GameManager : MonoBehaviour
         WinGame();
     }
 
-    public void OnPlayerHealthChanged(int currentHealth)
+    public void OnPlayerHealthChanged(long currentHealth)
     {
         if (hudManager != null)
         {
-            int maxHealth = player != null ? player.maxHealth : currentHealth;
+            long maxHealth = player != null ? player.maxHealth : currentHealth;
             hudManager.UpdateHealth(currentHealth, maxHealth);
         }
+    }
+
+    public void OnPlayerHealthChanged(int currentHealth)
+    {
+        OnPlayerHealthChanged((long)currentHealth);
     }
 
     public void OnPlayerDied()
@@ -156,17 +166,17 @@ public class GameManager : MonoBehaviour
     {
         if (currentState == GameState.Won || currentState == GameState.Lost) return;
         currentState = GameState.Won;
-        EndGame();
+        EndGame(true);
     }
 
     void LoseGame()
     {
         if (currentState == GameState.Won || currentState == GameState.Lost) return;
         currentState = GameState.Lost;
-        EndGame();
+        EndGame(false);
     }
 
-    void EndGame()
+    void EndGame(bool isVictory)
     {
         Time.timeScale = 0f;
 
@@ -178,12 +188,20 @@ public class GameManager : MonoBehaviour
 
         if (SoundController.Instance != null)
         {
-            SoundController.Instance.PlayGameOverSfx();
+            SoundController.Instance.StopMusic();
+            if (isVictory)
+            {
+                SoundController.Instance.PlayUpgradeContinueSfx();
+            }
+            else
+            {
+                SoundController.Instance.PlayGameOverSfx();
+            }
         }
 
         if (gameOverManager != null)
         {
-            gameOverManager.SetResults(currentScore, elapsedTime);
+            gameOverManager.SetResults(currentScore, elapsedTime, isVictory);
         }
     }
 }

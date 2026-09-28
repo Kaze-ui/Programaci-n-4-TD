@@ -38,6 +38,7 @@ public class GameOverManager : MonoBehaviour
     private LeaderboardData leaderboard;
     private float currentRunTime;
     private int currentRunScore;
+    private bool isVictoryRun = false;
 
     void Awake()
     {
@@ -56,14 +57,86 @@ public class GameOverManager : MonoBehaviour
         if (nameEntryGroup != null) nameEntryGroup.SetActive(true);
         if (postSubmitGroup != null) postSubmitGroup.SetActive(false);
         RefreshLeaderboardUI();
+        EnsureGameOverTitle();
     }
 
     // Llamar esto desde el sistema de gameplay cuando termina la partida (victoria o derrota)
     public void SetResults(int score, float timeSeconds)
     {
+        SetResults(score, timeSeconds, false);
+    }
+
+    public void SetResults(int score, float timeSeconds, bool isVictory)
+    {
+        isVictoryRun = isVictory;
         gameObject.SetActive(true);
         currentRunScore = score;
         currentRunTime = timeSeconds;
+        EnsureGameOverTitle();
+    }
+
+    private RectTransform GetOrCreateUIGameObject(string name)
+    {
+        Transform existing = transform.Find(name);
+        if (existing != null)
+        {
+            RectTransform existingRt = existing.GetComponent<RectTransform>();
+            if (existingRt != null)
+            {
+                return existingRt;
+            }
+            Destroy(existing.gameObject);
+        }
+
+        GameObject go = new GameObject(name, typeof(RectTransform));
+        go.transform.SetParent(transform, false);
+        return go.GetComponent<RectTransform>();
+    }
+
+    private void EnsureGameOverTitle()
+    {
+        // 1. TÍTULO PRINCIPAL: "GAME OVER" (En mayúsculas)
+        RectTransform rt = GetOrCreateUIGameObject("Title_GameOver");
+        rt.anchorMin = new Vector2(0.5f, 1f);
+        rt.anchorMax = new Vector2(0.5f, 1f);
+        rt.pivot = new Vector2(0.5f, 1f);
+        rt.anchoredPosition = new Vector2(0f, -65f);
+        rt.sizeDelta = new Vector2(900f, 110f);
+
+        TextMeshProUGUI tmp = rt.GetComponent<TextMeshProUGUI>() ?? rt.gameObject.AddComponent<TextMeshProUGUI>();
+
+        if (leaderboardRows != null && leaderboardRows.Length > 0 && leaderboardRows[0] != null)
+        {
+            tmp.font = leaderboardRows[0].font;
+        }
+
+        string colorHex = isVictoryRun ? "#38BDF8" : "#EF4444";
+        tmp.text = $"<color={colorHex}><b>GAME OVER</b></color>";
+        tmp.fontSize = 86;
+        tmp.fontStyle = FontStyles.Bold;
+        tmp.alignment = TextAlignmentOptions.Center;
+        tmp.characterSpacing = 8f;
+        tmp.raycastTarget = false;
+
+        // 2. SUBTÍTULO
+        RectTransform subRt = GetOrCreateUIGameObject("Subtitle_GameOver");
+        subRt.anchorMin = new Vector2(0.5f, 1f);
+        subRt.anchorMax = new Vector2(0.5f, 1f);
+        subRt.pivot = new Vector2(0.5f, 1f);
+        subRt.anchoredPosition = new Vector2(0f, -155f);
+        subRt.sizeDelta = new Vector2(800f, 40f);
+
+        TextMeshProUGUI subTmp = subRt.GetComponent<TextMeshProUGUI>() ?? subRt.gameObject.AddComponent<TextMeshProUGUI>();
+        if (tmp.font != null) subTmp.font = tmp.font;
+
+        subTmp.text = isVictoryRun
+            ? "<color=#FBBF24>¡MISIÓN CUMPLIDA - LEVIATÁN NODRIZA DERROTADO!</color>"
+            : "<color=#94A3B8>NAVE DESTRUIDA - FIN DE LA TRANSMISIÓN</color>";
+        subTmp.fontSize = 20;
+        subTmp.fontStyle = FontStyles.Bold;
+        subTmp.alignment = TextAlignmentOptions.Center;
+        subTmp.characterSpacing = 6f;
+        subTmp.raycastTarget = false;
     }
 
     private void ConfirmName()

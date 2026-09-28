@@ -15,7 +15,7 @@ public class WaveDefinition
     public string waveName = "Oleada";
     public float waveDuration = 45f;
     public EnemySpawnEntry[] enemies;
-    public float spawnStagger = 1.2f;
+    public float spawnStagger = 0.6f;
 }
 
 public class WaveController : MonoBehaviour
@@ -51,15 +51,15 @@ public class WaveController : MonoBehaviour
     {
         Instance = this;
 
-        // Asegurar duraciones por defecto de las oleadas (Oleada 1: 45s, Oleada 2: 50s, etc.)
-        float[] defaultDurations = { 45f, 50f, 55f, 60f, 60f };
+        // Duración fijada para todas las oleadas: 1 minuto y 10 segundos (70 segundos)
+        const float WAVE_DURATION_SECONDS = 70f;
         if (waves != null)
         {
-            for (int i = 0; i < waves.Length && i < defaultDurations.Length; i++)
+            for (int i = 0; i < waves.Length; i++)
             {
-                if (waves[i] != null && waves[i].waveDuration <= 0f)
+                if (waves[i] != null)
                 {
-                    waves[i].waveDuration = defaultDurations[i];
+                    waves[i].waveDuration = WAVE_DURATION_SECONDS;
                 }
             }
         }
@@ -185,12 +185,19 @@ public class WaveController : MonoBehaviour
                 GameManager.Instance.hudManager.UpdateTimer(Mathf.Max(0f, waveTimer));
             }
 
-            // Remueve referencias a enemigos destruidos
+            // Remueve referencias a enemigos destruidos y sincroniza el contador con la lista real
             aliveEnemies.RemoveAll(e => e == null);
+            enemiesAliveInWave = aliveEnemies.Count;
 
-            // Condición robusta: termina si ya no está spawneando Y (contador <= 0 O no quedan enemigos en lista)
-            if (!isSpawning && (enemiesAliveInWave <= 0 || aliveEnemies.Count == 0))
+            // Condición robusta: termina si ya no está spawneando Y realmente no queda ningún enemigo vivo en pantalla
+            if (!isSpawning && aliveEnemies.Count == 0)
             {
+                if (waveTimer > 0f && GameManager.Instance != null && GameManager.Instance.hudManager != null)
+                {
+                    GameManager.Instance.hudManager.UpdateTimer(0f);
+                    GameManager.Instance.hudManager.ShowWaveBanner("¡SECTOR ASEGURADO!", "Todos los hostiles eliminados");
+                    yield return new WaitForSeconds(1.2f);
+                }
                 waveActive = false; // completada de verdad
             }
             else if (waveTimer <= 0f)
@@ -366,7 +373,7 @@ public class WaveController : MonoBehaviour
             if (tier2Prefab != null) entries.Add(new EnemySpawnEntry { enemyPrefab = tier2Prefab, count = 5 });
         }
 
-        ApplyWaveEntries(wave, entries, 0.65f, 1.2f);
+        ApplyWaveEntries(wave, entries, 0.325f, 0.6f);
     }
 
     private void SetupWave2DynamicSet(WaveDefinition wave)
@@ -397,7 +404,7 @@ public class WaveController : MonoBehaviour
             if (tier1Prefab != null) entries.Add(new EnemySpawnEntry { enemyPrefab = tier1Prefab, count = 20 });
         }
 
-        ApplyWaveEntries(wave, entries, 0.55f, 1.0f);
+        ApplyWaveEntries(wave, entries, 0.275f, 0.5f);
     }
 
     private void SetupWave3DynamicSet(WaveDefinition wave)
@@ -430,7 +437,7 @@ public class WaveController : MonoBehaviour
             if (tier3Prefab != null) entries.Add(new EnemySpawnEntry { enemyPrefab = tier3Prefab, count = 10 });
         }
 
-        ApplyWaveEntries(wave, entries, 0.45f, 0.90f);
+        ApplyWaveEntries(wave, entries, 0.225f, 0.45f);
     }
 
     private void SetupWave4DynamicSet(WaveDefinition wave)
@@ -455,36 +462,36 @@ public class WaveController : MonoBehaviour
             if (tier3Prefab != null) entries.Add(new EnemySpawnEntry { enemyPrefab = tier3Prefab, count = 10 });
         }
 
-        ApplyWaveEntries(wave, entries, 0.45f, 0.95f);
+        ApplyWaveEntries(wave, entries, 0.225f, 0.475f);
     }
 
     private void SetupWave5DynamicSet(WaveDefinition wave)
     {
         // Probabilidades:
-        // 50% de 25 Tier 4, 15 Tier 3 y 20 Tier 1
-        // 50% de 30 Tier 4, 12 Tier 3 y 15 Tier 1
+        // 50% de 12 Tier 4, 20 Tier 3 y 25 Tier 1 (Set 1)
+        // 50% de 12 Tier 4, 22 Tier 3 y 25 Tier 1 (Set 2)
         float roll = Random.Range(0f, 100f);
         var entries = new List<EnemySpawnEntry>();
 
         if (roll < 50f)
         {
-            // Set 1 (50%): 25 Tier 4, 15 Tier 3 y 20 Tier 1
-            if (tier4Prefab != null) entries.Add(new EnemySpawnEntry { enemyPrefab = tier4Prefab, count = 25 });
-            if (tier3Prefab != null) entries.Add(new EnemySpawnEntry { enemyPrefab = tier3Prefab, count = 15 });
-            if (tier1Prefab != null) entries.Add(new EnemySpawnEntry { enemyPrefab = tier1Prefab, count = 20 });
+            // Set 1 (50%): 12 Tier 4, 20 Tier 3 (+5) y 25 Tier 1 (+5)
+            if (tier4Prefab != null) entries.Add(new EnemySpawnEntry { enemyPrefab = tier4Prefab, count = 12 });
+            if (tier3Prefab != null) entries.Add(new EnemySpawnEntry { enemyPrefab = tier3Prefab, count = 20 });
+            if (tier1Prefab != null) entries.Add(new EnemySpawnEntry { enemyPrefab = tier1Prefab, count = 25 });
         }
         else
         {
-            // Set 2 (50%): 30 Tier 4, 12 Tier 3 y 15 Tier 1
-            if (tier4Prefab != null) entries.Add(new EnemySpawnEntry { enemyPrefab = tier4Prefab, count = 30 });
-            if (tier3Prefab != null) entries.Add(new EnemySpawnEntry { enemyPrefab = tier3Prefab, count = 12 });
-            if (tier1Prefab != null) entries.Add(new EnemySpawnEntry { enemyPrefab = tier1Prefab, count = 15 });
+            // Set 2 (50%): 12 Tier 4, 22 Tier 3 (+10) y 25 Tier 1 (+10)
+            if (tier4Prefab != null) entries.Add(new EnemySpawnEntry { enemyPrefab = tier4Prefab, count = 12 });
+            if (tier3Prefab != null) entries.Add(new EnemySpawnEntry { enemyPrefab = tier3Prefab, count = 22 });
+            if (tier1Prefab != null) entries.Add(new EnemySpawnEntry { enemyPrefab = tier1Prefab, count = 25 });
         }
 
-        ApplyWaveEntries(wave, entries, 0.38f, 0.85f);
+        ApplyWaveEntries(wave, entries, 0.19f, 0.425f);
     }
 
-    private void ApplyWaveEntries(WaveDefinition wave, List<EnemySpawnEntry> entries, float minStagger = 0.45f, float maxStagger = 1.0f)
+    private void ApplyWaveEntries(WaveDefinition wave, List<EnemySpawnEntry> entries, float minStagger = 0.225f, float maxStagger = 0.5f)
     {
         if (entries == null || entries.Count == 0) return;
         wave.enemies = entries.ToArray();
@@ -497,7 +504,7 @@ public class WaveController : MonoBehaviour
 
         if (totalCount > 0)
         {
-            wave.spawnStagger = Mathf.Clamp(wave.waveDuration * 0.65f / totalCount, minStagger, maxStagger);
+            wave.spawnStagger = Mathf.Clamp((wave.waveDuration * 0.65f / totalCount) * 0.5f, minStagger, maxStagger);
         }
     }
 }

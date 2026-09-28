@@ -1,4 +1,6 @@
 using UnityEngine;
+using UnityEngine.SceneManagement;
+using System.Collections;
 
 public class SoundController : MonoBehaviour
 {
@@ -44,6 +46,10 @@ public class SoundController : MonoBehaviour
     [SerializeField] private AudioSource sfxSource;
     [SerializeField] private AudioSource chargeSource;
 
+    [Header("Música Temática")]
+    public AudioClip menuMusic;
+    public AudioClip gameMusic;
+
     [Header("Clips del Jugador")]
     public AudioClip shootSfx;       // Disparo normal
     public AudioClip miniShootSfx;   // Disparo pequeño (modo 2 toques rápidos)
@@ -69,6 +75,7 @@ public class SoundController : MonoBehaviour
 
     private float sfxVolume = 1.0f;
     private float musicVolume = 1.0f;
+    private Coroutine musicFadeCoroutine;
 
     void Awake()
     {
@@ -84,12 +91,154 @@ public class SoundController : MonoBehaviour
         LoadAllClips();
     }
 
+    void OnEnable()
+    {
+        SceneManager.sceneLoaded += OnSceneLoaded;
+    }
+
+    void OnDisable()
+    {
+        SceneManager.sceneLoaded -= OnSceneLoaded;
+    }
+
     void Start()
     {
-        if (backgroundMusic != null)
+        PlayMusicForCurrentScene();
+    }
+
+    private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
+    {
+        PlayMusicForCurrentScene();
+    }
+
+    public void PlayMusicForCurrentScene()
+    {
+        string sceneName = SceneManager.GetActiveScene().name;
+        if (sceneName == "MenúPrincipal" || sceneName.Contains("Menu"))
         {
-            PlayMusic(backgroundMusic);
+            PlayMenuMusic();
         }
+        else
+        {
+            PlayGameMusic();
+        }
+    }
+
+    public void PlayMenuMusic(bool fade = true)
+    {
+        if (menuMusic == null) menuMusic = Resources.Load<AudioClip>("Audio/music_menu");
+        SwitchMusicTrack(menuMusic, fade, 0.75f);
+    }
+
+    public void PlayGameMusic(bool fade = true)
+    {
+        if (gameMusic == null || gameMusic.loadState == AudioDataLoadState.Unloaded)
+            gameMusic = Resources.Load<AudioClip>("Audio/music_game");
+        SwitchMusicTrack(gameMusic, fade, 0.75f);
+    }
+
+    private void SwitchMusicTrack(AudioClip newClip, bool fade, float targetVolumeFactor = 1f)
+    {
+        if (musicSource == null) InitAudioSources();
+        if (newClip == null) return;
+
+        // Si ya está reproduciendo la misma pista, no reiniciar
+        if (musicSource.clip == newClip && musicSource.isPlaying)
+        {
+            return;
+        }
+
+        if (musicFadeCoroutine != null)
+        {
+            StopCoroutine(musicFadeCoroutine);
+        }
+
+        if (fade && musicSource.isPlaying && gameObject.activeInHierarchy)
+        {
+            musicFadeCoroutine = StartCoroutine(CrossfadeMusicRoutine(newClip, targetVolumeFactor));
+        }
+        else
+        {
+            musicSource.clip = newClip;
+            musicSource.loop = true;
+            musicSource.volume = musicVolume * targetVolumeFactor;
+            musicSource.Play();
+        }
+    }
+
+    private IEnumerator CrossfadeMusicRoutine(AudioClip newClip, float targetVolumeFactor)
+    {
+        float startVol = musicSource.volume;
+        float fadeOutTime = 0.5f;
+        float t = 0f;
+
+        while (t < fadeOutTime)
+        {
+            t += Time.unscaledDeltaTime;
+            musicSource.volume = Mathf.Lerp(startVol, 0f, t / fadeOutTime);
+            yield return null;
+        }
+
+        musicSource.Stop();
+        musicSource.clip = newClip;
+        musicSource.loop = true;
+        musicSource.Play();
+
+        float fadeInTime = 0.6f;
+        t = 0f;
+        float targetVol = musicVolume * targetVolumeFactor;
+
+        while (t < fadeInTime)
+        {
+            t += Time.unscaledDeltaTime;
+            musicSource.volume = Mathf.Lerp(0f, targetVol, t / fadeInTime);
+            yield return null;
+        }
+
+        musicSource.volume = targetVol;
+        musicFadeCoroutine = null;
+    }
+
+    public void StopMusic(bool fade = false)
+    {
+        if (musicFadeCoroutine != null)
+        {
+            StopCoroutine(musicFadeCoroutine);
+            musicFadeCoroutine = null;
+        }
+
+        if (musicSource == null) return;
+
+        if (fade && musicSource.isPlaying && gameObject.activeInHierarchy)
+        {
+            musicFadeCoroutine = StartCoroutine(FadeOutAndStopRoutine(0.5f));
+        }
+        else
+        {
+            musicSource.Stop();
+            musicSource.clip = null;
+        }
+    }
+
+    private IEnumerator FadeOutAndStopRoutine(float fadeDuration)
+    {
+        float startVol = musicSource.volume;
+        float t = 0f;
+        while (t < fadeDuration)
+        {
+            t += Time.unscaledDeltaTime;
+            musicSource.volume = Mathf.Lerp(startVol, 0f, t / fadeDuration);
+            yield return null;
+        }
+        musicSource.Stop();
+        musicSource.clip = null;
+        musicFadeCoroutine = null;
+    }
+
+    public void PlayMusic(AudioClip clip, bool loop = true)
+    {
+        if (clip == null) return;
+        SwitchMusicTrack(clip, false, 0.75f);
     }
 
     private void InitAudioSources()
@@ -99,6 +248,7 @@ public class SoundController : MonoBehaviour
             musicSource = gameObject.AddComponent<AudioSource>();
             musicSource.playOnAwake = false;
             musicSource.loop = true;
+            musicSource.spatialBlend = 0f; // 2D Stereo
         }
 
         if (sfxSource == null)
@@ -118,6 +268,9 @@ public class SoundController : MonoBehaviour
 
     private void LoadAllClips()
     {
+        if (menuMusic == null) menuMusic = Resources.Load<AudioClip>("Audio/music_menu");
+        if (gameMusic == null) gameMusic = Resources.Load<AudioClip>("Audio/music_game");
+
         if (shootSfx == null) shootSfx = LoadOrGenerateNormalShootSfx();
         if (miniShootSfx == null) miniShootSfx = LoadOrGenerateMiniShootSfx();
         if (chargeSfx == null) chargeSfx = LoadOrGenerateChargeSfx();
@@ -291,8 +444,8 @@ public class SoundController : MonoBehaviour
         if (sfxSource == null) InitAudioSources();
         if (switchModeSfx == null) switchModeSfx = LoadOrGenerateSwitchModeSfx();
 
-        sfxSource.pitch = Random.Range(0.98f, 1.02f);
-        sfxSource.PlayOneShot(switchModeSfx, 0.75f * sfxVolume);
+        sfxSource.pitch = Random.Range(0.88f, 0.95f);
+        sfxSource.PlayOneShot(switchModeSfx, 0.85f * sfxVolume);
     }
 
     public void PlayMediumShootSfx()
@@ -336,20 +489,6 @@ public class SoundController : MonoBehaviour
         if (sfxSource == null || clip == null) return;
         sfxSource.pitch = 1.0f;
         sfxSource.PlayOneShot(clip, sfxVolume);
-    }
-
-    public void PlayMusic(AudioClip clip, bool loop = true)
-    {
-        if (musicSource == null || clip == null) return;
-        musicSource.clip = clip;
-        musicSource.loop = loop;
-        musicSource.volume = musicVolume;
-        musicSource.Play();
-    }
-
-    public void StopMusic()
-    {
-        if (musicSource != null) musicSource.Stop();
     }
 
     public void SetMusicVolume(float volume)
@@ -661,16 +800,23 @@ public class SoundController : MonoBehaviour
         if (clip != null) return clip;
 
         int sampleRate = 44100;
-        int count = (int)(0.09f * sampleRate);
+        float duration = 0.14f;
+        int count = (int)(duration * sampleRate);
         float[] data = new float[count];
 
+        float phase = 0f;
         for (int i = 0; i < count; i++)
         {
             float t = (float)i / sampleRate;
-            float freq = 700f + 800f * (t / 0.09f);
-            float env = Mathf.Sqrt(Mathf.Sin(Mathf.PI * (t / 0.09f)));
-            float osc = Mathf.Sin(2f * Mathf.PI * freq * t) + 0.3f * Mathf.Sin(4f * Mathf.PI * freq * t);
-            data[i] = osc * env * 0.70f;
+            // Sweep de frecuencia grave: desciende de 240Hz a 120Hz con armónico profundo (sub-bass)
+            float freq = 120f + 120f * Mathf.Exp(-22f * t);
+            phase += 2f * Mathf.PI * freq / sampleRate;
+            float osc = Mathf.Sin(phase) * 0.65f 
+                      + Mathf.Sin(phase * 0.5f) * 0.40f // sub-octava grave
+                      + Mathf.Sin(phase * 2f) * 0.20f;  // presencia metálica
+            float click = (t < 0.01f) ? Mathf.Sin(t / 0.01f * Mathf.PI) * 0.35f : 0f;
+            float env = Mathf.Min(1f, t / 0.003f) * Mathf.Exp(-18f * t);
+            data[i] = Mathf.Clamp((osc + click) * env * 0.9f, -1f, 1f);
         }
 
         clip = AudioClip.Create("switch_mode_proc", count, 1, sampleRate, false);

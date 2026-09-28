@@ -30,7 +30,7 @@ Transform:
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
   m_LocalPosition: {x: 968.58527, y: 107.1065, z: 0}
-  m_LocalScale: {x: 90, y: 90, z: 1}
+  m_LocalScale: {x: 126, y: 126, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 0}
@@ -84,7 +84,7 @@ SpriteRenderer:
   m_SortingLayer: 0
   m_SortingOrder: 0
   m_MaskInteraction: 0
-  m_Sprite: {fileID: 21300000, guid: a1010101010101010101010101010103, type: 3}
+  m_Sprite: {fileID: 21300000, guid: a1010101010101010101010101010122, type: 3}
   m_Color: {r: 1, g: 1, b: 1, a: 1}
   m_FlipX: 0
   m_FlipY: 0
@@ -181,20 +181,21 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::EnemyController
   tier: 1
   maxHealth: 2
-  scoreValue: 2
+  scoreValue: 3
+  explosionSprite: {fileID: 21300000, guid: e2020202020202020202020202020202, type: 3}
   moveSpeed: 200
   minX: -780
   maxX: 2700
   settleY: 1300
-  entrySpeed: 300
+  entrySpeed: 600
   entryHeightAboveSettle: 400
   repositionMinX: -780
   repositionMaxX: 2700
-  repositionSpeed: 300
+  repositionSpeed: 600
   minSeparationFromOthers: 400
   bulletPrefab: {fileID: 5141576225277623232, guid: 2917fe9a5ce2d0540a4217361be42aff, type: 3}
   bigBulletPrefab: {fileID: 0}
   laserPrefab: {fileID: 0}
   tier2AimChance: 0.4
-  fireCadence: 1.02
+  fireCadence: 1.75
   contactDamage: 1

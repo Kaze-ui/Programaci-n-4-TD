@@ -14,6 +14,9 @@ public class EnemyController : MonoBehaviour, IDamageable
     public int scoreValue = 1;
     private bool givesScore = true;
 
+    [Header("Efecto de Explosión")]
+    public Sprite explosionSprite;
+
     [Header("Movimiento")]
     public float moveSpeed = 100f;
     public float minX = -400f;
@@ -21,13 +24,13 @@ public class EnemyController : MonoBehaviour, IDamageable
     public float settleY = 250f; // altura donde se "asienta" tras entrar (Tiers 1-4)
 
     [Header("Entrada (antes de empezar a disparar)")]
-    public float entrySpeed = 300f; // velocidad de la caída inicial, distinta de moveSpeed (patrulla)
+    public float entrySpeed = 600f; // velocidad de la caída inicial, distinta de moveSpeed (patrulla)
     public float entryHeightAboveSettle = 400f; // garantiza que SIEMPRE arranque por encima de settleY, sin importar el punto de spawn
 
     [Header("Reposicionamiento horizontal (Tier 1 y Tier 2)")]
     public float repositionMinX = -780f;
     public float repositionMaxX = 2700f;
-    public float repositionSpeed = 300f;
+    public float repositionSpeed = 600f;
     public float minSeparationFromOthers = 200f; // distancia mínima en X respecto a otros enemigos vivos del mismo tier
 
     // Estructuras por hilera (row) para acumular hasta 10 enemigos por hilera sin superponerse
@@ -56,11 +59,12 @@ public class EnemyController : MonoBehaviour, IDamageable
     public GameObject laserPrefab;     // solo Tier4
     public float fireCadence = 1f;
     public float tier1BulletSpeed = 240f; // 40% menos de velocidad que la base (400f -> 240f)
+    public float tier3BigBulletSpeed = 240f; // Duplicada la velocidad de las balas grandes Tier 3 (120f -> 240f)
 
     [Header("Láser y Señalización (Tier 4)")]
     public GameObject telegraphPrefab;
-    public float laserCooldown = 3f;             // Intervalo de ciclo de disparo (cada 3 segundos)
-    public float laserTelegraphDuration = 1.5f;   // Duración de la mira/aviso rojo antes del láser real (1.5 segundos)
+    public float laserCooldown = 4f;             // Intervalo de ciclo de disparo (cada 4 segundos)
+    public float laserTelegraphDuration = 2.5f;   // Duración de la mira/aviso rojo (+1s respecto a 1.5s -> 2.5s)
     public float laserBeamLength = 5250f;         // Longitud para atravesar toda la pantalla (+50% respecto a 3500)
     public float laserBeamWidth = 60f;            // Ancho del láser real
     public float laserTelegraphWidth = 25f;       // Ancho del aviso rojo
@@ -109,13 +113,34 @@ public class EnemyController : MonoBehaviour, IDamageable
         currentHealth = maxHealth;
         mainCam = Camera.main;
 
+        // Puntuación programada según dificultad, vida, ataques y frecuencia:
+        // Tier 1 (1 HP, disparos simples, carne de cañón): 1 punto
+        // Tier 2 (2 HP, ráfagas dobles, movilidad lateral): 3 puntos
+        // Tier 3 (3 HP, patrullaje horizontal, ráfaga triple + bala gigante veloz): 6 puntos
+        // Tier 4 (4 HP, torreta acorazada pesada, rayo láser letal): 10 puntos
+        switch (tier)
+        {
+            case EnemyTier.Tier1:
+                scoreValue = 1;
+                break;
+            case EnemyTier.Tier2:
+                scoreValue = 3;
+                break;
+            case EnemyTier.Tier3:
+                scoreValue = 6;
+                break;
+            case EnemyTier.Tier4:
+                scoreValue = 10;
+                break;
+        }
+
         if (tier == EnemyTier.Tier1)
         {
             aimsAtPlayer = Random.value < tier1AimChance; // 60% de probabilidad por enemigo
-            // Disminución del 25% de cadencia (mayor intervalo entre disparos)
-            if (Mathf.Approximately(fireCadence, 1.02f) || Mathf.Approximately(fireCadence, 1f))
+            // Disminución del 70% de cadencia (mayor intervalo entre disparos, de 1.275s a 2.17s)
+            if (Mathf.Approximately(fireCadence, 1.275f) || Mathf.Approximately(fireCadence, 1.02f) || Mathf.Approximately(fireCadence, 1f))
             {
-                fireCadence = 1.275f;
+                fireCadence = 2.17f;
             }
         }
         else if (tier == EnemyTier.Tier2)
@@ -636,10 +661,26 @@ public class EnemyController : MonoBehaviour, IDamageable
             yield return new WaitForSeconds(0.5f);
             FireBullet(bulletPrefab, 400f, GetTier3BulletDirection());
             yield return new WaitForSeconds(2f);
-            Vector3 dir = GetTier3BulletDirection();
+            Vector3 dir = GetTier3BigBulletDirection();
             Vector3 spawnOffset = dir.normalized * bigBulletSpawnOffset;
-            FireBullet(bigBulletPrefab, 120f, dir, spawnOffset);
+            FireBullet(bigBulletPrefab, tier3BigBulletSpeed, dir, spawnOffset);
         }
+    }
+
+    Vector3 GetTier3BigBulletDirection()
+    {
+        if (playerTransform == null)
+        {
+            PlayerController pc = FindAnyObjectByType<PlayerController>();
+            if (pc != null) playerTransform = pc.transform;
+        }
+
+        if (playerTransform != null)
+        {
+            return (playerTransform.position - transform.position).normalized;
+        }
+
+        return Vector3.down;
     }
 
     Vector3 GetTier3BulletDirection()
@@ -830,6 +871,8 @@ public class EnemyController : MonoBehaviour, IDamageable
         activeTier3Count = 0;
     }
 
+    private bool isDead = false;
+
     public void TakeDamage(int amount)
     {
         TakeDamage((float)amount);
@@ -837,7 +880,7 @@ public class EnemyController : MonoBehaviour, IDamageable
 
     public void TakeDamage(float amount)
     {
-        if (Time.timeScale == 0f) return;
+        if (Time.timeScale == 0f || isDead) return;
 
         currentHealth -= amount;
         if (currentHealth <= 0.001f) Die();
@@ -845,11 +888,13 @@ public class EnemyController : MonoBehaviour, IDamageable
 
     public bool IsDead()
     {
-        return currentHealth <= 0.001f;
+        return isDead || currentHealth <= 0.001f;
     }
 
     void Die()
     {
+        if (isDead) return;
+        isDead = true;
         if (SoundController.Instance != null)
         {
             SoundController.Instance.PlayEnemyDeathSfx();
@@ -864,6 +909,13 @@ public class EnemyController : MonoBehaviour, IDamageable
         {
             WaveController.Instance.OnEnemyDestroyed();
         }
+
+        Material mat = null;
+        if (TryGetComponent<SpriteRenderer>(out var sr))
+        {
+            mat = sr.sharedMaterial;
+        }
+        EnemyExplosion.Spawn(transform.position, tier, transform.localScale, mat, explosionSprite);
 
         Destroy(gameObject);
     }

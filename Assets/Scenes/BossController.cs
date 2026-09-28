@@ -5,7 +5,7 @@ using System.Collections.Generic;
 public class BossController : MonoBehaviour, IDamageable
 {
     [Header("Vida")]
-    public int maxHealth = 25;
+    public int maxHealth = 250;
     private float currentHealth;
 
     [Header("Movimiento")]
@@ -64,6 +64,12 @@ public class BossController : MonoBehaviour, IDamageable
         {
             float screenTop = mainCam.transform.position.y + mainCam.orthographicSize + 250f;
             transform.position = new Vector3(transform.position.x, Mathf.Max(transform.position.y, screenTop), transform.position.z);
+        }
+
+        // Activa la mítica barra de vida del jefe en el HUD
+        if (GameManager.Instance != null && GameManager.Instance.hudManager != null)
+        {
+            GameManager.Instance.hudManager.ActivateBossHealthBar("Leviatán nodriza", maxHealth);
         }
     }
 
@@ -420,6 +426,8 @@ public class BossController : MonoBehaviour, IDamageable
         }
     }
 
+    private bool isDead = false;
+
     public void TakeDamage(int amount)
     {
         TakeDamage((float)amount);
@@ -427,9 +435,14 @@ public class BossController : MonoBehaviour, IDamageable
 
     public void TakeDamage(float amount)
     {
-        if (Time.timeScale == 0f) return;
+        if (Time.timeScale == 0f || isDead) return;
 
         currentHealth -= amount;
+
+        if (GameManager.Instance != null && GameManager.Instance.hudManager != null)
+        {
+            GameManager.Instance.hudManager.UpdateBossHealth(currentHealth);
+        }
 
         if (currentHealth <= 0.001f)
         {
@@ -439,15 +452,24 @@ public class BossController : MonoBehaviour, IDamageable
 
     public bool IsDead()
     {
-        return currentHealth <= 0.001f;
+        return isDead || currentHealth <= 0.001f;
     }
 
     void Die()
     {
+        if (isDead) return;
+        isDead = true;
+
         CleanupAll();
+
+        if (GameManager.Instance != null && GameManager.Instance.hudManager != null)
+        {
+            GameManager.Instance.hudManager.OnBossDefeated();
+        }
 
         if (SoundController.Instance != null)
         {
+            SoundController.Instance.StopMusic();
             SoundController.Instance.PlayBossDeathSfx();
         }
 
@@ -455,6 +477,13 @@ public class BossController : MonoBehaviour, IDamageable
         {
             GameManager.Instance.OnBossDefeated(scoreValue);
         }
+
+        Material mat = null;
+        if (TryGetComponent<SpriteRenderer>(out var sr))
+        {
+            mat = sr.sharedMaterial;
+        }
+        EnemyExplosion.SpawnBossSequence(transform.position, transform.localScale, mat);
 
         Destroy(gameObject);
     }

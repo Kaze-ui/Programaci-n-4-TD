@@ -20,7 +20,7 @@ public class UpgradeManager : MonoBehaviour
     [Header("Salud")]
     [SerializeField] private Button healthButton;
     [SerializeField] private TextMeshProUGUI healthCostText;
-    [SerializeField] private int healthIncreasePerLevel = 1;
+    [SerializeField] private int healthIncreasePerLevel = 2;
     private int healthLevel = 0;
 
     [Header("Continuar a la siguiente oleada")]
@@ -36,8 +36,8 @@ public class UpgradeManager : MonoBehaviour
     public Action OnContinue;
 
     [Header("Configuración de costo")]
-    [SerializeField] private int baseCost = 10;
-    [SerializeField] private int costIncreasePerLevel = 5;
+    [SerializeField] private int baseCost = 25;
+    [SerializeField] private int costIncreasePerLevel = 20;
 
     [Header("Temporizador de Pantalla de Mejoras")]
     public float maxWaitTime = 20f;
@@ -359,6 +359,17 @@ public class UpgradeManager : MonoBehaviour
 
     private void PurchaseHealth()
     {
+        // El máximo de vidas es 10. Si ya tiene 10 o más vidas, no se permite comprar
+        if (playerController != null && playerController.GetCurrentHealth() >= 10)
+        {
+            if (SoundController.Instance != null)
+            {
+                SoundController.Instance.PlayUpgradeFailedSfx();
+            }
+            StartCoroutine(FlashPriceText(healthCostText));
+            return;
+        }
+
         int cost = GetCost(healthLevel);
         if (GameManager.Instance == null) return;
 
@@ -406,7 +417,24 @@ public class UpgradeManager : MonoBehaviour
         // Actualizar números de precio abajo de cada rectángulo
         if (damageCostText != null) damageCostText.text = $"{GetCost(damageLevel)} PTS";
         if (speedCostText != null) speedCostText.text = $"{GetCost(speedLevel)} PTS";
-        if (healthCostText != null) healthCostText.text = $"{GetCost(healthLevel)} PTS";
+
+        bool isHealthMaxed = playerController != null && playerController.GetCurrentHealth() >= 10;
+        if (healthButton != null)
+        {
+            healthButton.interactable = !isHealthMaxed;
+        }
+
+        if (healthCostText != null)
+        {
+            if (isHealthMaxed)
+            {
+                healthCostText.text = "<color=#94A3B8>MÁXIMO (10/10)</color>";
+            }
+            else
+            {
+                healthCostText.text = $"{GetCost(healthLevel)} PTS";
+            }
+        }
 
         // Actualizar sprites si se asignaron externamente
         if (damageArtImage != null && damageImage != null) damageArtImage.sprite = damageImage;

@@ -179,7 +179,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 1c9a9448cfee294478b40eab09d21615, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::BossController
-  maxHealth: 25
+  maxHealth: 250
   moveSpeed: 175
   targetY: 1100
   entrySpeed: 150

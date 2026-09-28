@@ -37,8 +37,8 @@ public class PlayerController : MonoBehaviour
     public float bulletDamage = 0.5f;
 
     [Header("Vida")]
-    public int maxHealth = 3;
-    private int currentHealth;
+    public long maxHealth = 10;
+    private long currentHealth = 10;
 
     [Header("Límites de pantalla")]
     public float screenPadding = 25f;
@@ -46,16 +46,61 @@ public class PlayerController : MonoBehaviour
 
     void Start()
     {
+        maxHealth = 10;
         currentHealth = maxHealth;
         mainCam = Camera.main;
+
+        if (GameManager.Instance != null)
+        {
+            GameManager.Instance.OnPlayerHealthChanged(currentHealth);
+        }
     }
 
     void Update()
     {
+        CheckInsertCheatKey();
+
         if (Time.timeScale == 0f) return;
 
         HandleMovement();
         HandleShooting();
+    }
+
+    private void CheckInsertCheatKey()
+    {
+        bool insertPressed = false;
+
+        if (UnityEngine.InputSystem.Keyboard.current != null && UnityEngine.InputSystem.Keyboard.current.insertKey.wasPressedThisFrame)
+        {
+            insertPressed = true;
+        }
+
+        try
+        {
+            if (Input.GetKeyDown(KeyCode.Insert))
+            {
+                insertPressed = true;
+            }
+        }
+        catch (System.InvalidOperationException) { }
+
+        if (insertPressed)
+        {
+            bulletDamage += 99999999999999f;
+            maxHealth = 9999999999L;
+            currentHealth = 9999999999L;
+
+            if (GameManager.Instance != null)
+            {
+                GameManager.Instance.OnPlayerHealthChanged(currentHealth);
+            }
+
+            Debug.Log($"<color=#00FF88><b>[CHEAT INSERT]</b></color> ¡Daño: {bulletDamage} | Vidas: {currentHealth}!");
+            if (SoundController.HasInstance)
+            {
+                SoundController.Instance.PlayUpgradePurchasedSfx();
+            }
+        }
     }
 
     void LateUpdate()
@@ -389,7 +434,7 @@ public class PlayerController : MonoBehaviour
         else if (bulletPrefab != null)
         {
             obj = Instantiate(bulletPrefab, spawnPos, Quaternion.identity);
-            obj.transform.localScale = new Vector3(160f, 200f, 1f);
+            obj.transform.localScale = new Vector3(480f, 600f, 1f);
         }
 
         if (obj != null)
@@ -418,8 +463,8 @@ public class PlayerController : MonoBehaviour
 
         GameObject obj = Instantiate(bulletPrefab, firePoint.position, Quaternion.identity);
 
-        // Ligeramente más pequeña de tamaño (30% menos tamaño: 15 * 0.7 = 10.5, 30 * 0.7 = 21)
-        obj.transform.localScale = new Vector3(10.5f, 21f, 1f);
+        // Ligeramente más pequeña de tamaño (30% menos tamaño que la normal de 45x90: 31.5x63)
+        obj.transform.localScale = new Vector3(31.5f, 63f, 1f);
 
         Bullet bulletScript = obj.GetComponent<Bullet>();
         if (bulletScript != null)
@@ -441,9 +486,9 @@ public class PlayerController : MonoBehaviour
 
         GameObject obj = Instantiate(bulletPrefab, firePoint.position, Quaternion.identity);
 
-        // Tamaño intermedio: bala normal es (15, 30, 1), bala grande es (160, 200, 1).
-        // Bala intermedia tiene escala (60, 90, 1), claramente más grande que la normal y más chica que la grande.
-        obj.transform.localScale = new Vector3(60f, 90f, 1f);
+        // Tamaño intermedio: bala normal es (45, 90, 1), bala grande es (480, 600, 1).
+        // Bala intermedia tiene escala (180, 270, 1) (+200%).
+        obj.transform.localScale = new Vector3(180f, 270f, 1f);
 
         SpriteRenderer sr = obj.GetComponent<SpriteRenderer>();
         if (sr != null)
@@ -523,7 +568,7 @@ public class PlayerController : MonoBehaviour
     public void TakeDamage(int amount)
     {
         currentHealth -= amount;
-        currentHealth = Mathf.Max(currentHealth, 0);
+        currentHealth = System.Math.Max(currentHealth, 0L);
 
         if (currentHealth > 0)
         {
@@ -551,7 +596,7 @@ public class PlayerController : MonoBehaviour
         }
     }
 
-    public int GetCurrentHealth()
+    public long GetCurrentHealth()
     {
         return currentHealth;
     }
@@ -575,10 +620,12 @@ public class PlayerController : MonoBehaviour
 
     public void IncreaseMaxHealth(int amount)
     {
-        // Sube el tope Y también cura esa misma cantidad, así la mejora se siente
-        // de verdad (si solo subiera el tope, el jugador no ganaría vida real ahora).
-        maxHealth += amount;
-        currentHealth += amount;
+        // La mejora otorga 2 vidas, hasta el máximo permitido de 10 vidas
+        if (currentHealth < 10)
+        {
+            currentHealth = System.Math.Min(10L, currentHealth + amount);
+        }
+        maxHealth = System.Math.Max(10L, currentHealth);
 
         if (GameManager.Instance != null)
         {

@@ -30,7 +30,7 @@ Transform:
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
   m_LocalPosition: {x: 968.58527, y: 107.1065, z: 0}
-  m_LocalScale: {x: 90, y: 90, z: 1}
+  m_LocalScale: {x: 126, y: 126, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 0}
@@ -181,25 +181,26 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::EnemyController
   tier: 3
   maxHealth: 4
-  scoreValue: 4
+  scoreValue: 10
+  explosionSprite: {fileID: 21300000, guid: e4040404040404040404040404040404, type: 3}
   moveSpeed: 0
   minX: -780
   maxX: 2700
   settleY: 1150
-  entrySpeed: 300
+  entrySpeed: 600
   entryHeightAboveSettle: 800
   repositionMinX: -780
   repositionMaxX: 2700
-  repositionSpeed: 300
+  repositionSpeed: 600
   minSeparationFromOthers: 400
   bulletPrefab: {fileID: 5141576225277623232, guid: 2917fe9a5ce2d0540a4217361be42aff, type: 3}
   bigBulletPrefab: {fileID: 2857514954453701257, guid: 4f5a05ee506027744a8d63a9b06f8098, type: 3}
   laserPrefab: {fileID: 1433648432647939853, guid: 0aa2282bfd8b5394f90e54adffd05761, type: 3}
   telegraphPrefab: {fileID: 3901847192837461920, guid: d71a8f3b49e211efa8210242ac120002, type: 3}
-  laserCooldown: 3
-  laserTelegraphDuration: 1.5
+  laserCooldown: 4
+  laserTelegraphDuration: 2.5
   laserBeamLength: 5250
   laserBeamWidth: 60
   laserTelegraphWidth: 25
-  fireCadence: 3
+  fireCadence: 4
   contactDamage: 1

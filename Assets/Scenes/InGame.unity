@@ -153,8 +153,8 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 1, y: 1}
   m_AnchorMax: {x: 1, y: 1}
-  m_AnchoredPosition: {x: -114, y: -28}
-  m_SizeDelta: {x: 200, y: 50}
+  m_AnchoredPosition: {x: -195, y: -38}
+  m_SizeDelta: {x: 350, y: 55}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &17926096
 MonoBehaviour:
@@ -185,8 +185,8 @@ MonoBehaviour:
   m_fontMaterials: []
   m_fontColor32:
     serializedVersion: 2
-    rgba: 4294967295
-  m_fontColor: {r: 1, g: 1, b: 1, a: 1}
+    rgba: 4278253567
+  m_fontColor: {r: 1, g: 0.84, b: 0, a: 1}
   m_enableVertexGradient: 0
   m_colorMode: 3
   m_fontColorGradient:
@@ -203,13 +203,13 @@ MonoBehaviour:
   m_faceColor:
     serializedVersion: 2
     rgba: 4294967295
-  m_fontSize: 36
-  m_fontSizeBase: 36
+  m_fontSize: 32
+  m_fontSizeBase: 32
   m_fontWeight: 400
   m_enableAutoSizing: 0
   m_fontSizeMin: 18
   m_fontSizeMax: 72
-  m_fontStyle: 0
+  m_fontStyle: 1
   m_HorizontalAlignment: 4
   m_VerticalAlignment: 256
   m_textAlignment: 65535
@@ -220,7 +220,7 @@ MonoBehaviour:
   m_lineSpacingMax: 0
   m_paragraphSpacing: 0
   m_charWidthMaxAdj: 0
-  m_TextWrappingMode: 1
+  m_TextWrappingMode: 0
   m_wordWrappingRatios: 0.4
   m_overflowMode: 0
   m_linkedTextComponent: {fileID: 0}
@@ -290,8 +290,8 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0, y: 1}
   m_AnchorMax: {x: 0, y: 1}
-  m_AnchoredPosition: {x: 111, y: -30}
-  m_SizeDelta: {x: 200, y: 50}
+  m_AnchoredPosition: {x: 195, y: -38}
+  m_SizeDelta: {x: 350, y: 55}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &54489583
 MonoBehaviour:
@@ -322,8 +322,8 @@ MonoBehaviour:
   m_fontMaterials: []
   m_fontColor32:
     serializedVersion: 2
-    rgba: 4294967295
-  m_fontColor: {r: 1, g: 1, b: 1, a: 1}
+    rgba: 4291884288
+  m_fontColor: {r: 0, g: 0.96, b: 0.83, a: 1}
   m_enableVertexGradient: 0
   m_colorMode: 3
   m_fontColorGradient:
@@ -340,13 +340,13 @@ MonoBehaviour:
   m_faceColor:
     serializedVersion: 2
     rgba: 4294967295
-  m_fontSize: 36
-  m_fontSizeBase: 36
+  m_fontSize: 32
+  m_fontSizeBase: 32
   m_fontWeight: 400
   m_enableAutoSizing: 0
   m_fontSizeMin: 18
   m_fontSizeMax: 72
-  m_fontStyle: 0
+  m_fontStyle: 1
   m_HorizontalAlignment: 1
   m_VerticalAlignment: 256
   m_textAlignment: 65535
@@ -357,7 +357,7 @@ MonoBehaviour:
   m_lineSpacingMax: 0
   m_paragraphSpacing: 0
   m_charWidthMaxAdj: 0
-  m_TextWrappingMode: 1
+  m_TextWrappingMode: 0
   m_wordWrappingRatios: 0.4
   m_overflowMode: 0
   m_linkedTextComponent: {fileID: 0}
@@ -869,8 +869,8 @@ MonoBehaviour:
   healthCostText: {fileID: 1085329412}
   healthIncreasePerLevel: 1
   continueButton: {fileID: 1425562745}
-  baseCost: 10
-  costIncreasePerLevel: 5
+  baseCost: 25
+  costIncreasePerLevel: 20
   playerController: {fileID: 995606718}
 --- !u!114 &266798252
 MonoBehaviour:
@@ -1174,13 +1174,13 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 362289242}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: fe87c0e1cc204ed48ad3b37840f39efc, type: 3}
   m_Name: 
   m_EditorClassIdentifier: UnityEngine.UI::UnityEngine.UI.Image
   m_Material: {fileID: 0}
-  m_Color: {r: 1, g: 1, b: 1, a: 0.392}
+  m_Color: {r: 1, g: 1, b: 1, a: 0}
   m_RaycastTarget: 1
   m_RaycastPadding: {x: 0, y: 0, z: 0, w: 0}
   m_Maskable: 1
@@ -1525,8 +1525,8 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0, y: 0}
   m_AnchorMax: {x: 0, y: 0}
-  m_AnchoredPosition: {x: 119, y: 28}
-  m_SizeDelta: {x: 200, y: 50}
+  m_AnchoredPosition: {x: 195, y: 38}
+  m_SizeDelta: {x: 350, y: 55}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &511755079
 MonoBehaviour:
@@ -1557,8 +1557,8 @@ MonoBehaviour:
   m_fontMaterials: []
   m_fontColor32:
     serializedVersion: 2
-    rgba: 4294967295
-  m_fontColor: {r: 1, g: 1, b: 1, a: 1}
+    rgba: 4292443448
+  m_fontColor: {r: 0.22, g: 0.74, b: 0.97, a: 1}
   m_enableVertexGradient: 0
   m_colorMode: 3
   m_fontColorGradient:
@@ -1575,13 +1575,13 @@ MonoBehaviour:
   m_faceColor:
     serializedVersion: 2
     rgba: 4294967295
-  m_fontSize: 36
-  m_fontSizeBase: 36
+  m_fontSize: 32
+  m_fontSizeBase: 32
   m_fontWeight: 400
   m_enableAutoSizing: 0
   m_fontSizeMin: 18
   m_fontSizeMax: 72
-  m_fontStyle: 0
+  m_fontStyle: 1
   m_HorizontalAlignment: 1
   m_VerticalAlignment: 256
   m_textAlignment: 65535
@@ -1592,7 +1592,7 @@ MonoBehaviour:
   m_lineSpacingMax: 0
   m_paragraphSpacing: 0
   m_charWidthMaxAdj: 0
-  m_TextWrappingMode: 1
+  m_TextWrappingMode: 0
   m_wordWrappingRatios: 0.4
   m_overflowMode: 0
   m_linkedTextComponent: {fileID: 0}
@@ -2254,21 +2254,21 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::WaveController
   waves:
   - waveName: Oleada 1
-    waveDuration: 45
+    waveDuration: 70
     enemies:
     - enemyPrefab: {fileID: 3548929726047941586, guid: 5ddd6252005b9e643baf6771b2ebbfcb, type: 3}
       count: 10
-    spawnStagger: 1.2
+    spawnStagger: 0.6
   - waveName: Oleada 2
-    waveDuration: 50
+    waveDuration: 70
     enemies:
     - enemyPrefab: {fileID: 3548929726047941586, guid: 5ddd6252005b9e643baf6771b2ebbfcb, type: 3}
       count: 8
     - enemyPrefab: {fileID: 6103972842093275275, guid: 24f5d1288e60edb419569b5624c64337, type: 3}
       count: 6
-    spawnStagger: 1.2
+    spawnStagger: 0.6
   - waveName: Oleada 3
-    waveDuration: 55
+    waveDuration: 70
     enemies:
     - enemyPrefab: {fileID: 3548929726047941586, guid: 5ddd6252005b9e643baf6771b2ebbfcb, type: 3}
       count: 6
@@ -2276,9 +2276,9 @@ MonoBehaviour:
       count: 6
     - enemyPrefab: {fileID: 8852751736772035020, guid: 450f12f0970af4b46822bd07c087ea52, type: 3}
       count: 4
-    spawnStagger: 1.2
+    spawnStagger: 0.6
   - waveName: Oleada 4
-    waveDuration: 60
+    waveDuration: 70
     enemies:
     - enemyPrefab: {fileID: 6103972842093275275, guid: 24f5d1288e60edb419569b5624c64337, type: 3}
       count: 4
@@ -2286,15 +2286,15 @@ MonoBehaviour:
       count: 4
     - enemyPrefab: {fileID: 5092116378913370737, guid: 6c8b3d1b93e2db843ac5702764264c31, type: 3}
       count: 4
-    spawnStagger: 1.2
+    spawnStagger: 0.6
   - waveName: Oleada 5
-    waveDuration: 60
+    waveDuration: 70
     enemies:
     - enemyPrefab: {fileID: 8852751736772035020, guid: 450f12f0970af4b46822bd07c087ea52, type: 3}
       count: 5
     - enemyPrefab: {fileID: 5092116378913370737, guid: 6c8b3d1b93e2db843ac5702764264c31, type: 3}
       count: 5
-    spawnStagger: 1.2
+    spawnStagger: 0.6
   tier1Prefab: {fileID: 3548929726047941586, guid: 5ddd6252005b9e643baf6771b2ebbfcb, type: 3}
   tier2Prefab: {fileID: 6103972842093275275, guid: 24f5d1288e60edb419569b5624c64337, type: 3}
   tier3Prefab: {fileID: 8852751736772035020, guid: 450f12f0970af4b46822bd07c087ea52, type: 3}
@@ -2751,7 +2751,7 @@ MonoBehaviour:
   fireRate: 0.3
   chargeTimeRequired: 2.5
   bulletDamage: 0.5
-  maxHealth: 9999999
+  maxHealth: 10
 --- !u!61 &995606719
 BoxCollider2D:
   m_ObjectHideFlags: 0
@@ -2874,7 +2874,7 @@ SpriteRenderer:
   m_SortingLayer: 0
   m_SortingOrder: 0
   m_MaskInteraction: 0
-  m_Sprite: {fileID: 21300000, guid: a1010101010101010101010101010101, type: 3}
+  m_Sprite: {fileID: 21300000, guid: dc05144e42c702148bd0192f21145efd, type: 3}
   m_Color: {r: 1, g: 1, b: 1, a: 1}
   m_FlipX: 0
   m_FlipY: 0
@@ -2894,7 +2894,7 @@ Transform:
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
   m_LocalPosition: {x: 680, y: 488, z: 0}
-  m_LocalScale: {x: 25, y: 25, z: 1}
+  m_LocalScale: {x: 70, y: 70, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
   - {fileID: 293136877}
@@ -4951,8 +4951,8 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 1, y: 0}
   m_AnchorMax: {x: 1, y: 0}
-  m_AnchoredPosition: {x: -121, y: 47}
-  m_SizeDelta: {x: 200, y: 50}
+  m_AnchoredPosition: {x: -195, y: 38}
+  m_SizeDelta: {x: 350, y: 55}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &1782794949
 MonoBehaviour:
@@ -4983,8 +4983,8 @@ MonoBehaviour:
   m_fontMaterials: []
   m_fontColor32:
     serializedVersion: 2
-    rgba: 4294967295
-  m_fontColor: {r: 1, g: 1, b: 1, a: 1}
+    rgba: 4282773503
+  m_fontColor: {r: 1, g: 0.62, b: 0.26, a: 1}
   m_enableVertexGradient: 0
   m_colorMode: 3
   m_fontColorGradient:
@@ -5001,13 +5001,13 @@ MonoBehaviour:
   m_faceColor:
     serializedVersion: 2
     rgba: 4294967295
-  m_fontSize: 36
-  m_fontSizeBase: 36
+  m_fontSize: 32
+  m_fontSizeBase: 32
   m_fontWeight: 400
   m_enableAutoSizing: 0
   m_fontSizeMin: 18
   m_fontSizeMax: 72
-  m_fontStyle: 0
+  m_fontStyle: 1
   m_HorizontalAlignment: 4
   m_VerticalAlignment: 256
   m_textAlignment: 65535
@@ -5018,7 +5018,7 @@ MonoBehaviour:
   m_lineSpacingMax: 0
   m_paragraphSpacing: 0
   m_charWidthMaxAdj: 0
-  m_TextWrappingMode: 1
+  m_TextWrappingMode: 0
   m_wordWrappingRatios: 0.4
   m_overflowMode: 0
   m_linkedTextComponent: {fileID: 0}
