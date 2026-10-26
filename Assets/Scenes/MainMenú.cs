@@ -20,16 +20,7 @@ public class MainMenu : MonoBehaviour
         }
     }
 
-    void Start()
-    {
-        EnsureMenuBackground();
-        SetupTitle();
-        SetupButtons();
-        if (SoundController.Instance != null)
-        {
-            SoundController.Instance.PlayMenuMusic();
-        }
-    }
+
 
     private void EnsureMenuBackground()
     {

@@ -67,6 +67,7 @@ public class UpgradeManager : MonoBehaviour
 
     void OnEnable()
     {
+        transform.SetAsLastSibling();
         countdownTimer = maxWaitTime;
         hasContinued = false;
         RefreshUI();
@@ -109,10 +110,11 @@ public class UpgradeManager : MonoBehaviour
         Image panelBg = GetComponent<Image>();
         if (panelBg != null)
         {
-            panelBg.color = new Color(0.02f, 0.05f, 0.10f, 0.82f);
+            panelBg.color = new Color(0.02f, 0.05f, 0.10f, 0.88f);
+            panelBg.raycastTarget = true;
         }
 
-        // Crear sprites procedurales elegantes por defecto
+        // Crear sprites procedurales elegantes por defecto con sus símbolos correspondientes
         if (s_CardBgSprite == null) s_CardBgSprite = GenerateCardBgSprite();
         if (s_DamageDefaultIcon == null) s_DamageDefaultIcon = GenerateDamageIcon();
         if (s_HealthDefaultIcon == null) s_HealthDefaultIcon = GenerateHealthIcon();
@@ -324,6 +326,7 @@ public class UpgradeManager : MonoBehaviour
 
         damageLevel++;
         if (playerController != null) playerController.IncreaseDamage(damageIncreasePerLevel);
+        if (GameManager.Instance != null && GameManager.Instance.player2 != null) GameManager.Instance.player2.IncreaseDamage(damageIncreasePerLevel);
         RefreshUI();
 
         if (SoundController.Instance != null)
@@ -349,6 +352,7 @@ public class UpgradeManager : MonoBehaviour
 
         speedLevel++;
         if (playerController != null) playerController.IncreaseSpeed(speedIncreasePerLevel);
+        if (GameManager.Instance != null && GameManager.Instance.player2 != null) GameManager.Instance.player2.IncreaseSpeed(speedIncreasePerLevel);
         RefreshUI();
 
         if (SoundController.Instance != null)
@@ -360,7 +364,10 @@ public class UpgradeManager : MonoBehaviour
     private void PurchaseHealth()
     {
         // El máximo de vidas es 10. Si ya tiene 10 o más vidas, no se permite comprar
-        if (playerController != null && playerController.GetCurrentHealth() >= 10)
+        bool isHealthMaxed = (playerController != null && playerController.GetCurrentHealth() >= 10) &&
+                             (GameManager.Instance == null || GameManager.Instance.player2 == null || GameManager.Instance.player2.GetCurrentHealth() >= 10);
+
+        if (isHealthMaxed)
         {
             if (SoundController.Instance != null)
             {
@@ -385,6 +392,7 @@ public class UpgradeManager : MonoBehaviour
 
         healthLevel++;
         if (playerController != null) playerController.IncreaseMaxHealth(healthIncreasePerLevel);
+        if (GameManager.Instance != null && GameManager.Instance.player2 != null) GameManager.Instance.player2.IncreaseMaxHealth(healthIncreasePerLevel);
         RefreshUI();
 
         if (SoundController.Instance != null)
@@ -418,7 +426,8 @@ public class UpgradeManager : MonoBehaviour
         if (damageCostText != null) damageCostText.text = $"{GetCost(damageLevel)} PTS";
         if (speedCostText != null) speedCostText.text = $"{GetCost(speedLevel)} PTS";
 
-        bool isHealthMaxed = playerController != null && playerController.GetCurrentHealth() >= 10;
+        bool isHealthMaxed = (playerController != null && playerController.GetCurrentHealth() >= 10) &&
+                             (GameManager.Instance == null || GameManager.Instance.player2 == null || GameManager.Instance.player2.GetCurrentHealth() >= 10);
         if (healthButton != null)
         {
             healthButton.interactable = !isHealthMaxed;
@@ -525,7 +534,7 @@ public class UpgradeManager : MonoBehaviour
         return Sprite.Create(tex, new Rect(0, 0, w, h), new Vector2(0.5f, 0.5f));
     }
 
-    private static Sprite GenerateDamageIcon()
+    private static Sprite CreateIconSprite(Color glowColor, Color iconColor, System.Func<int, int, int, Vector2, bool> isPixelInShape)
     {
         int size = 128;
         Texture2D tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
@@ -536,25 +545,16 @@ public class UpgradeManager : MonoBehaviour
         {
             for (int x = 0; x < size; x++)
             {
-                Vector2 pos = new Vector2(x, y);
-                float dist = Vector2.Distance(pos, center);
-
-                // Círculo de brillo rojo/naranja
+                float dist = Vector2.Distance(new Vector2(x, y), center);
                 float glow = Mathf.Clamp01(1f - (dist / (size * 0.45f)));
-                glow = glow * glow;
 
-                // Hoja / espada diagonal
-                float diag1 = Mathf.Abs((x - y));
-                float diag2 = Mathf.Abs((x - (size - y)));
-                bool isBlade = (diag1 <= 4f && dist < 45f) || (diag2 <= 4f && dist < 45f);
-
-                if (isBlade)
+                if (isPixelInShape(x, y, size, center))
                 {
-                    pixels[y * size + x] = new Color(1f, 0.95f, 0.85f, 1f);
+                    pixels[y * size + x] = iconColor;
                 }
                 else if (glow > 0.05f)
                 {
-                    pixels[y * size + x] = new Color(1f, 0.35f, 0.15f, glow * 0.85f);
+                    pixels[y * size + x] = new Color(glowColor.r, glowColor.g, glowColor.b, glow * glow * 0.75f);
                 }
                 else
                 {
@@ -567,88 +567,41 @@ public class UpgradeManager : MonoBehaviour
         return Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f));
     }
 
-    private static Sprite GenerateHealthIcon()
-    {
-        int size = 128;
-        Texture2D tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
-        Color[] pixels = new Color[size * size];
-        Vector2 center = new Vector2(size * 0.5f, size * 0.5f);
-
-        for (int y = 0; y < size; y++)
+    // Dibujo 1: Espadas cruzadas de Daño (naranja/rojo de combate)
+    private static Sprite GenerateDamageIcon() => CreateIconSprite(
+        new Color(1f, 0.35f, 0.15f),
+        new Color(1f, 0.95f, 0.85f),
+        (x, y, size, center) =>
         {
-            for (int x = 0; x < size; x++)
-            {
-                Vector2 pos = new Vector2(x, y);
-                float dist = Vector2.Distance(pos, center);
+            float d = Vector2.Distance(new Vector2(x, y), center);
+            if (d > 44f) return false;
+            float diag1 = Mathf.Abs(x - y);
+            float diag2 = Mathf.Abs(x - (size - y));
+            return diag1 <= 4.5f || diag2 <= 4.5f;
+        });
 
-                // Cruz médica verde/esmeralda brillante
-                float dx = Mathf.Abs(x - center.x);
-                float dy = Mathf.Abs(y - center.y);
-                bool inCross = (dx <= 12f && dy <= 38f) || (dy <= 12f && dx <= 38f);
-
-                float glow = Mathf.Clamp01(1f - (dist / (size * 0.45f)));
-                glow = glow * glow;
-
-                if (inCross)
-                {
-                    pixels[y * size + x] = new Color(0.2f, 1f, 0.5f, 1f);
-                }
-                else if (glow > 0.05f)
-                {
-                    pixels[y * size + x] = new Color(0.1f, 0.85f, 0.35f, glow * 0.65f);
-                }
-                else
-                {
-                    pixels[y * size + x] = Color.clear;
-                }
-            }
-        }
-        tex.SetPixels(pixels);
-        tex.Apply();
-        return Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f));
-    }
-
-    private static Sprite GenerateSpeedIcon()
-    {
-        int size = 128;
-        Texture2D tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
-        Color[] pixels = new Color[size * size];
-        Vector2 center = new Vector2(size * 0.5f, size * 0.5f);
-
-        for (int y = 0; y < size; y++)
+    // Dibujo 2: Cruz médica de Salud / Vida (verde esmeralda brillante)
+    private static Sprite GenerateHealthIcon() => CreateIconSprite(
+        new Color(0.1f, 0.85f, 0.35f),
+        new Color(0.3f, 1f, 0.6f),
+        (x, y, size, center) =>
         {
-            for (int x = 0; x < size; x++)
-            {
-                Vector2 pos = new Vector2(x, y);
-                float dist = Vector2.Distance(pos, center);
+            float dx = Mathf.Abs(x - center.x);
+            float dy = Mathf.Abs(y - center.y);
+            return (dx <= 12f && dy <= 38f) || (dy <= 12f && dx <= 38f);
+        });
 
-                // Rayo / chevron aerodinámico cian
-                float relY = y - center.y;
-                float arrowX = Mathf.Abs(x - center.x);
-                bool inArrow1 = Mathf.Abs(relY - (arrowX * 0.7f - 15f)) <= 7f && arrowX <= 38f;
-                bool inArrow2 = Mathf.Abs(relY - (arrowX * 0.7f + 15f)) <= 7f && arrowX <= 38f;
-
-                float glow = Mathf.Clamp01(1f - (dist / (size * 0.45f)));
-                glow = glow * glow;
-
-                if (inArrow1 || inArrow2)
-                {
-                    pixels[y * size + x] = new Color(0.7f, 0.95f, 1f, 1f);
-                }
-                else if (glow > 0.05f)
-                {
-                    pixels[y * size + x] = new Color(0.15f, 0.65f, 1f, glow * 0.75f);
-                }
-                else
-                {
-                    pixels[y * size + x] = Color.clear;
-                }
-            }
-        }
-        tex.SetPixels(pixels);
-        tex.Apply();
-        return Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f));
-    }
+    // Dibujo 3: Doble chevron aerodinámico de Velocidad (cian eléctrico)
+    private static Sprite GenerateSpeedIcon() => CreateIconSprite(
+        new Color(0.15f, 0.65f, 1f),
+        new Color(0.7f, 0.95f, 1f),
+        (x, y, size, center) =>
+        {
+            float relY = y - center.y;
+            float ax = Mathf.Abs(x - center.x);
+            return (Mathf.Abs(relY - (ax * 0.7f - 15f)) <= 6.5f && ax <= 36f) ||
+                   (Mathf.Abs(relY - (ax * 0.7f + 15f)) <= 6.5f && ax <= 36f);
+        });
 
     public int DamageLevel => damageLevel;
     public int SpeedLevel => speedLevel;

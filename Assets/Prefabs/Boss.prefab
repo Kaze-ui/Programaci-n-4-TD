@@ -189,7 +189,7 @@ MonoBehaviour:
   telegraphPrefab: {fileID: 3901847192837461920, guid: d71a8f3b49e211efa8210242ac120002, type: 3}
   tier4Prefab: {fileID: 5092116378913370737, guid: 6c8b3d1b93e2db843ac5702764264c31, type: 3}
   smallBulletCadence: 1.02
-  smallBulletSpeed: 400
+  smallBulletSpeed: 460
   smallBulletCount: 12
   homingTurnSpeed: 100
   bigBulletCadence: 1

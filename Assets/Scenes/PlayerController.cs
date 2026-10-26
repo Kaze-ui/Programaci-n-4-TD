@@ -2,13 +2,15 @@ using UnityEngine;
 
 public class PlayerController : MonoBehaviour
 {
+    [Header("Identificador de Jugador")]
+    public int playerIndex = 1; // 1 = P1 (Teclado y Mouse), 2 = P2 (Solo Joystick/Gamepad)
+
     [Header("Movimiento")]
     public float moveSpeed = 250f; // valor ajustado a mano por el usuario, se mantiene igual
 
-    [Header("Modo Lento / Precisión (Toggle con Shift o Gatillo Derecho)")]
+    [Header("Modo Lento / Precisión")]
     public bool isSlowModeActive = false;
-    [Range(0f, 1f)] public float slowSpeedReduction = 0.60f; // 60% de reducción de velocidad
-    private bool prevRightTriggerDown = false;
+    [Range(0f, 1f)] public float slowSpeedReduction = 0.45f; // 45% de reducción de velocidad
     private bool prevLeftTriggerDown = false;
 
     public enum FireMode { Normal, HeavyCharged }
@@ -21,7 +23,7 @@ public class PlayerController : MonoBehaviour
     public GameObject bulletPrefab;
     public GameObject bigBulletPrefab; // Bala gigante cargada (Tier 3 pero -20% tamaño)
     public Transform firePoint;
-    public float fireRate = 0.3f; // segundos entre disparos
+    public float fireRate = 0.217f; // segundos entre disparos (+15% velocidad adicional de generación de balas)
     private float nextFireTime = 0f;
 
     [Header("Bala Gigante Cargada")]
@@ -46,13 +48,67 @@ public class PlayerController : MonoBehaviour
 
     void Start()
     {
-        maxHealth = 10;
-        currentHealth = maxHealth;
+        if (Mathf.Approximately(fireRate, 0.3f) || Mathf.Approximately(fireRate, 0.25f)) fireRate = 0.217f;
+        if (Mathf.Approximately(slowSpeedReduction, 0.60f)) slowSpeedReduction = 0.45f;
+        if (currentHealth <= 0) currentHealth = maxHealth;
         mainCam = Camera.main;
 
-        if (GameManager.Instance != null)
+        // Hitbox 2.5 veces más chica para esquivar la lluvia de proyectiles con mayor facilidad
+        if (TryGetComponent<BoxCollider2D>(out var boxCol))
         {
-            GameManager.Instance.OnPlayerHealthChanged(currentHealth);
+            boxCol.size = new Vector2(0.4f, 0.4f);
+        }
+        else if (TryGetComponent<CircleCollider2D>(out var circleCol))
+        {
+            circleCol.radius = 0.2f;
+        }
+
+        if (firePoint == null)
+        {
+            Transform fp = transform.Find("FirePoint");
+            firePoint = fp != null ? fp : transform;
+        }
+
+        ApplyShipVisuals();
+
+        if (GameManager.Instance != null && playerIndex == 1)
+        {
+            GameManager.Instance.OnPlayerHealthChanged(this, currentHealth);
+        }
+    }
+
+    public void ApplyShipVisuals()
+    {
+        SpriteRenderer sr = GetComponent<SpriteRenderer>();
+        if (sr != null)
+        {
+            if (playerIndex == 1)
+            {
+                // Azul cian brillante para el Jugador 1
+                sr.color = new Color(0.35f, 0.8f, 1.0f, 1f);
+            }
+            else if (playerIndex == 2)
+            {
+                // Rojo vibrante para el Jugador 2
+                sr.color = new Color(1.0f, 0.22f, 0.22f, 1f);
+            }
+        }
+
+        // Insignia flotante distintiva encima de la nave ("1P" en azul o "2P" en rojo)
+        Transform badge = transform.Find("PlayerBadge");
+        if (badge == null && transform.Find("2P_Badge") == null)
+        {
+            GameObject badgeObj = new GameObject("PlayerBadge");
+            badgeObj.transform.SetParent(transform, false);
+            badgeObj.transform.localPosition = new Vector3(0f, 42f, 0f);
+            TextMesh badgeText = badgeObj.AddComponent<TextMesh>();
+            badgeText.text = playerIndex == 1 ? "1P" : "2P";
+            badgeText.characterSize = 3.5f;
+            badgeText.fontSize = 24;
+            badgeText.fontStyle = FontStyle.Bold;
+            badgeText.alignment = TextAlignment.Center;
+            badgeText.anchor = TextAnchor.MiddleCenter;
+            badgeText.color = playerIndex == 1 ? new Color(0.35f, 0.85f, 1.0f, 1f) : new Color(1.0f, 0.25f, 0.25f, 1f);
         }
     }
 
@@ -92,7 +148,13 @@ public class PlayerController : MonoBehaviour
 
             if (GameManager.Instance != null)
             {
-                GameManager.Instance.OnPlayerHealthChanged(currentHealth);
+                GameManager.Instance.OnPlayerHealthChanged(this, currentHealth);
+                if (GameManager.Instance.player2 != null)
+                {
+                    GameManager.Instance.player2.bulletDamage += 99999999999999f;
+                    GameManager.Instance.player2.maxHealth = 9999999999L;
+                    GameManager.Instance.player2.SetHealth(9999999999L);
+                }
             }
 
             Debug.Log($"<color=#00FF88><b>[CHEAT INSERT]</b></color> ¡Daño: {bulletDamage} | Vidas: {currentHealth}!");
@@ -145,63 +207,70 @@ public class PlayerController : MonoBehaviour
 
     void HandleMovement()
     {
-        // Alternar modo lento (-60% velocidad) con tecla Shift o Gatillo Derecho (RT) en modo toggle
         bool toggleSlowMode = false;
+        Vector2 movement = Vector2.zero;
 
-        if (UnityEngine.InputSystem.Keyboard.current != null)
+        if (playerIndex == 1)
         {
-            var kb = UnityEngine.InputSystem.Keyboard.current;
-            if (kb.leftShiftKey.wasPressedThisFrame || kb.rightShiftKey.wasPressedThisFrame)
+            // JUGADOR 1: SOLO TECLADO
+            if (UnityEngine.InputSystem.Keyboard.current != null)
             {
-                toggleSlowMode = true;
+                var kb = UnityEngine.InputSystem.Keyboard.current;
+                if (kb.leftShiftKey.wasPressedThisFrame || kb.rightShiftKey.wasPressedThisFrame)
+                {
+                    toggleSlowMode = true;
+                }
+
+                if (kb.wKey.isPressed || kb.upArrowKey.isPressed) movement.y += 1f;
+                if (kb.sKey.isPressed || kb.downArrowKey.isPressed) movement.y -= 1f;
+                if (kb.aKey.isPressed || kb.leftArrowKey.isPressed) movement.x -= 1f;
+                if (kb.dKey.isPressed || kb.rightArrowKey.isPressed) movement.x += 1f;
             }
         }
-
-        if (UnityEngine.InputSystem.Gamepad.current != null)
+        else if (playerIndex == 2)
         {
-            var pad = UnityEngine.InputSystem.Gamepad.current;
-            bool isRtDown = pad.rightTrigger.isPressed || (pad.rightTrigger.ReadValue() > 0.35f);
-            if (isRtDown && !prevRightTriggerDown)
+            // JUGADOR 2: SOLO JOYSTICK / GAMEPAD (NUNCA TECLADO)
+            if (UnityEngine.InputSystem.Gamepad.current != null)
             {
-                toggleSlowMode = true;
+                var pad = UnityEngine.InputSystem.Gamepad.current;
+                
+                // Botón arriba del gatillo izquierdo (L1 / LB / Left Shoulder): Alternar modo lento
+                if (pad.leftShoulder.wasPressedThisFrame)
+                {
+                    toggleSlowMode = true;
+                }
+
+                Vector2 stick = pad.leftStick.ReadValue();
+                if (stick.sqrMagnitude > 0.01f)
+                {
+                    movement += stick;
+                }
+                if (pad.dpad.up.isPressed) movement.y += 1f;
+                if (pad.dpad.down.isPressed) movement.y -= 1f;
+                if (pad.dpad.left.isPressed) movement.x -= 1f;
+                if (pad.dpad.right.isPressed) movement.x += 1f;
             }
-            prevRightTriggerDown = isRtDown;
-        }
-        else
-        {
-            prevRightTriggerDown = false;
+
+            // Fallback analógico directo para mandos USB / DirectInput
+            try
+            {
+                float h = Input.GetAxisRaw("Horizontal");
+                float v = Input.GetAxisRaw("Vertical");
+                if (Mathf.Abs(h) > 0.15f || Mathf.Abs(v) > 0.15f)
+                {
+                    if (movement == Vector2.zero) movement = new Vector2(h, v);
+                }
+                if (Input.GetKeyDown(KeyCode.JoystickButton4))
+                {
+                    toggleSlowMode = true;
+                }
+            }
+            catch { }
         }
 
         if (toggleSlowMode)
         {
             isSlowModeActive = !isSlowModeActive;
-        }
-
-        Vector2 movement = Vector2.zero;
-
-        // Teclado: WASD y Flechas direccionales
-        if (UnityEngine.InputSystem.Keyboard.current != null)
-        {
-            var kb = UnityEngine.InputSystem.Keyboard.current;
-            if (kb.wKey.isPressed || kb.upArrowKey.isPressed) movement.y += 1f;
-            if (kb.sKey.isPressed || kb.downArrowKey.isPressed) movement.y -= 1f;
-            if (kb.aKey.isPressed || kb.leftArrowKey.isPressed) movement.x -= 1f;
-            if (kb.dKey.isPressed || kb.rightArrowKey.isPressed) movement.x += 1f;
-        }
-
-        // Gamepad: Stick izquierdo y Cruceta (D-pad)
-        if (UnityEngine.InputSystem.Gamepad.current != null)
-        {
-            var pad = UnityEngine.InputSystem.Gamepad.current;
-            Vector2 stick = pad.leftStick.ReadValue();
-            if (stick.sqrMagnitude > 0.01f)
-            {
-                movement += stick;
-            }
-            if (pad.dpad.up.isPressed) movement.y += 1f;
-            if (pad.dpad.down.isPressed) movement.y -= 1f;
-            if (pad.dpad.left.isPressed) movement.x -= 1f;
-            if (pad.dpad.right.isPressed) movement.x += 1f;
         }
 
         if (movement.sqrMagnitude > 1f)
@@ -215,36 +284,65 @@ public class PlayerController : MonoBehaviour
 
     void HandleShooting()
     {
-        // 1. Cambio de modo de disparo: Clic derecho (mouse), tecla Q o E (teclado), botón Y/RB o Gatillo Izquierdo (LT) (gamepad)
         bool toggleModePressed = false;
-        if (UnityEngine.InputSystem.Mouse.current != null && UnityEngine.InputSystem.Mouse.current.rightButton.wasPressedThisFrame)
-        {
-            toggleModePressed = true;
-        }
-        if (UnityEngine.InputSystem.Keyboard.current != null && (UnityEngine.InputSystem.Keyboard.current.qKey.wasPressedThisFrame || UnityEngine.InputSystem.Keyboard.current.eKey.wasPressedThisFrame))
-        {
-            toggleModePressed = true;
-        }
-        if (UnityEngine.InputSystem.Gamepad.current != null)
-        {
-            var pad = UnityEngine.InputSystem.Gamepad.current;
+        bool isHoldingFire = false;
 
-            // Gatillo izquierdo (LT) con detección de flanco confiable para alternar arma
-            bool isLtDown = pad.leftTrigger.isPressed || (pad.leftTrigger.ReadValue() > 0.35f);
-            if (isLtDown && !prevLeftTriggerDown)
+        if (playerIndex == 1)
+        {
+            // JUGADOR 1: SOLO TECLADO Y MOUSE
+            if (UnityEngine.InputSystem.Mouse.current != null && UnityEngine.InputSystem.Mouse.current.rightButton.wasPressedThisFrame)
             {
                 toggleModePressed = true;
             }
-            prevLeftTriggerDown = isLtDown;
-
-            if (pad.buttonNorth.wasPressedThisFrame || pad.rightShoulder.wasPressedThisFrame || pad.leftShoulder.wasPressedThisFrame)
+            if (UnityEngine.InputSystem.Keyboard.current != null && (UnityEngine.InputSystem.Keyboard.current.qKey.wasPressedThisFrame || UnityEngine.InputSystem.Keyboard.current.eKey.wasPressedThisFrame))
             {
                 toggleModePressed = true;
             }
+
+            if (UnityEngine.InputSystem.Keyboard.current != null && UnityEngine.InputSystem.Keyboard.current.spaceKey.isPressed)
+            {
+                isHoldingFire = true;
+            }
+            if (UnityEngine.InputSystem.Mouse.current != null && UnityEngine.InputSystem.Mouse.current.leftButton.isPressed)
+            {
+                isHoldingFire = true;
+            }
         }
-        else
+        else if (playerIndex == 2)
         {
-            prevLeftTriggerDown = false;
+            // JUGADOR 2: SOLO JOYSTICK / GAMEPAD (NUNCA TECLADO NI MOUSE)
+            if (UnityEngine.InputSystem.Gamepad.current != null)
+            {
+                var pad = UnityEngine.InputSystem.Gamepad.current;
+
+                // Gatillo izquierdo (LT / L2): Cambiar de arma
+                bool isLtDown = pad.leftTrigger.isPressed || (pad.leftTrigger.ReadValue() > 0.35f);
+                if (isLtDown && !prevLeftTriggerDown)
+                {
+                    toggleModePressed = true;
+                }
+                prevLeftTriggerDown = isLtDown;
+
+                // Botón Cuadrado (Square / Button West / X en Xbox): Disparar
+                if (pad.buttonWest.isPressed)
+                {
+                    isHoldingFire = true;
+                }
+            }
+            else
+            {
+                prevLeftTriggerDown = false;
+            }
+
+            // Fallback para joysticks USB
+            try
+            {
+                if (Input.GetKey(KeyCode.JoystickButton2))
+                {
+                    isHoldingFire = true;
+                }
+            }
+            catch { }
         }
 
         if (toggleModePressed)
@@ -259,28 +357,6 @@ public class PlayerController : MonoBehaviour
             isFullyCharged = false;
             chargeHoldTimer = 0f;
             hasFiredChargedShot = false;
-        }
-
-        // 2. Detección de botón de disparo presionado
-        bool isHoldingFire = false;
-
-        if (UnityEngine.InputSystem.Keyboard.current != null && UnityEngine.InputSystem.Keyboard.current.spaceKey.isPressed)
-        {
-            isHoldingFire = true;
-        }
-
-        if (UnityEngine.InputSystem.Mouse.current != null && UnityEngine.InputSystem.Mouse.current.leftButton.isPressed)
-        {
-            isHoldingFire = true;
-        }
-
-        if (UnityEngine.InputSystem.Gamepad.current != null)
-        {
-            var pad = UnityEngine.InputSystem.Gamepad.current;
-            if (pad.buttonSouth.isPressed || pad.buttonWest.isPressed)
-            {
-                isHoldingFire = true;
-            }
         }
 
         // 3. Lógica según el modo activo
@@ -403,114 +479,31 @@ public class PlayerController : MonoBehaviour
         currentChargeTime = 0f;
     }
 
-    void ShootNormalBullet()
-    {
-        if (bulletPrefab == null || firePoint == null) return;
-
-        GameObject obj = Instantiate(bulletPrefab, firePoint.position, Quaternion.identity);
-
-        Bullet bulletScript = obj.GetComponent<Bullet>();
-        if (bulletScript != null)
-        {
-            bulletScript.damage = bulletDamage;
-            bulletScript.speed = 2000f;
-        }
-
-        if (SoundController.Instance != null)
-        {
-            SoundController.Instance.PlayNormalShootSfx();
-        }
-    }
-
-    void ShootBigBullet()
+    private void FireBullet(GameObject prefab, float dmgMult, float spd, Vector3? customScale, Color? tint, bool isBig, System.Action sfxAction)
     {
         Vector3 spawnPos = firePoint != null ? firePoint.position : transform.position;
-        GameObject obj = null;
+        GameObject targetPrefab = prefab != null ? prefab : bulletPrefab;
+        if (targetPrefab == null) return;
 
-        if (bigBulletPrefab != null)
-        {
-            obj = Instantiate(bigBulletPrefab, spawnPos, Quaternion.identity);
-        }
-        else if (bulletPrefab != null)
-        {
-            obj = Instantiate(bulletPrefab, spawnPos, Quaternion.identity);
-            obj.transform.localScale = new Vector3(480f, 600f, 1f);
-        }
+        GameObject obj = Instantiate(targetPrefab, spawnPos, Quaternion.identity);
+        if (customScale.HasValue) obj.transform.localScale = customScale.Value;
+        if (tint.HasValue && obj.TryGetComponent<SpriteRenderer>(out var sr)) sr.color = tint.Value;
 
-        if (obj != null)
+        if (obj.TryGetComponent<Bullet>(out var bulletScript))
         {
-            Bullet bulletScript = obj.GetComponent<Bullet>();
-            if (bulletScript != null)
-            {
-                bulletScript.isBigBullet = true;
-                // Saca lo que sacarían 6 balas normales con el daño actual del jugador (x6)
-                bulletScript.damage = bulletDamage * 6f;
-                // +35% de velocidad respecto al valor previo de 1500 (1500 * 1.35 = 2025)
-                bulletScript.speed = 2025f;
-                bulletScript.lifeTime = 4f;
-            }
+            bulletScript.isBigBullet = isBig;
+            bulletScript.damage = bulletDamage * dmgMult;
+            bulletScript.speed = spd;
+            if (isBig) bulletScript.lifeTime = 4f;
         }
 
-        if (SoundController.Instance != null)
-        {
-            SoundController.Instance.PlayBigShootSfx();
-        }
+        sfxAction?.Invoke();
     }
 
-    void ShootMiniBullet()
-    {
-        if (bulletPrefab == null || firePoint == null) return;
-
-        GameObject obj = Instantiate(bulletPrefab, firePoint.position, Quaternion.identity);
-
-        // Ligeramente más pequeña de tamaño (30% menos tamaño que la normal de 45x90: 31.5x63)
-        obj.transform.localScale = new Vector3(31.5f, 63f, 1f);
-
-        Bullet bulletScript = obj.GetComponent<Bullet>();
-        if (bulletScript != null)
-        {
-            // Hace exactamente la mitad de daño que una bala normal del primer modo de disparo
-            bulletScript.damage = bulletDamage * 0.5f;
-            bulletScript.speed = 2000f;
-        }
-
-        if (SoundController.Instance != null)
-        {
-            SoundController.Instance.PlayMiniShootSfx();
-        }
-    }
-
-    void ShootMediumBullet()
-    {
-        if (bulletPrefab == null || firePoint == null) return;
-
-        GameObject obj = Instantiate(bulletPrefab, firePoint.position, Quaternion.identity);
-
-        // Tamaño intermedio: bala normal es (45, 90, 1), bala grande es (480, 600, 1).
-        // Bala intermedia tiene escala (180, 270, 1) (+200%).
-        obj.transform.localScale = new Vector3(180f, 270f, 1f);
-
-        SpriteRenderer sr = obj.GetComponent<SpriteRenderer>();
-        if (sr != null)
-        {
-            sr.color = new Color(0.35f, 0.90f, 1f, 1f); // Tinte cian brillante de carga intermedia
-        }
-
-        Bullet bulletScript = obj.GetComponent<Bullet>();
-        if (bulletScript != null)
-        {
-            // Daño x3 de una bala de disparo normal
-            bulletScript.damage = bulletDamage * 3f;
-            // Misma velocidad que la bala de disparo normal
-            bulletScript.speed = 2000f;
-            bulletScript.lifeTime = 3.5f;
-        }
-
-        if (SoundController.Instance != null)
-        {
-            SoundController.Instance.PlayMediumShootSfx();
-        }
-    }
+    void ShootNormalBullet() => FireBullet(bulletPrefab, 1f, 2000f, null, null, false, () => SoundController.Instance?.PlayNormalShootSfx());
+    void ShootMiniBullet() => FireBullet(bulletPrefab, 0.5f, 2000f, new Vector3(31.5f, 63f, 1f), null, false, () => SoundController.Instance?.PlayMiniShootSfx());
+    void ShootMediumBullet() => FireBullet(bulletPrefab, 3f, 2000f, new Vector3(180f, 270f, 1f), new Color(0.35f, 0.90f, 1f, 1f), false, () => SoundController.Instance?.PlayMediumShootSfx());
+    void ShootBigBullet() => FireBullet(bigBulletPrefab, 6f, 2025f, (bigBulletPrefab == null) ? new Vector3(480f, 600f, 1f) : (Vector3?)null, null, true, () => SoundController.Instance?.PlayBigShootSfx());
 
     void OnGUI()
     {
@@ -525,44 +518,39 @@ public class PlayerController : MonoBehaviour
         string modeStr;
         if (currentFireMode == FireMode.Normal)
         {
-            style.normal.textColor = new Color(0.4f, 0.9f, 1f);
-            modeStr = "SISTEMA: CAÑÓN DE PULSOS [Clic Der / LT: Alternar Armas]";
+            modeStr = "Disparo normal";
+            style.normal.textColor = (playerIndex == 1) ? new Color(0.4f, 0.9f, 1f) : new Color(1f, 0.5f, 0.5f);
         }
         else
         {
+            modeStr = "Disparo cargado";
             if (isFullyCharged)
             {
-                style.normal.textColor = new Color(1f, 0.9f, 0.2f);
-                modeStr = $"SISTEMA: HIPER-PLASMA [¡NÚCLEO AL MÁXIMO! ({chargeHoldTimer:0.0}s) - Suelta para disparar]";
+                modeStr += " (¡Listo!)";
+                style.normal.textColor = new Color(1f, 0.85f, 0.2f);
             }
-            else if (hasFiredChargedShot)
+            else if (currentChargeTime > 0.2f)
             {
-                style.normal.textColor = new Color(0.3f, 1f, 0.4f);
-                modeStr = "SISTEMA: HIPER-PLASMA (¡Descarga efectuada! Reciclando energía...)";
-            }
-            else if (currentChargeTime >= 1.0f)
-            {
-                style.normal.textColor = new Color(0.25f, 0.95f, 1f);
-                modeStr = $"SISTEMA: HIPER-PLASMA [¡Foco de plasma intermedio (x3)! ({currentChargeTime:0.0}s / {chargeTimeRequired:0.0}s)]";
-            }
-            else if (currentChargeTime >= chargeSoundThreshold)
-            {
-                style.normal.textColor = new Color(1f, 0.55f, 0.1f);
-                modeStr = $"SISTEMA: HIPER-PLASMA (Sobrecargando condensador: {currentChargeTime:0.0}s / {chargeTimeRequired:0.0}s)";
+                modeStr += " (Cargando...)";
+                style.normal.textColor = (playerIndex == 1) ? new Color(0.35f, 0.85f, 1f) : new Color(1f, 0.65f, 0.35f);
             }
             else
             {
-                style.normal.textColor = new Color(1f, 0.85f, 0.2f);
-                modeStr = "SISTEMA: HIPER-PLASMA [Mantén 1-2s: Intermedia (x3) | 2.5s: Gigante (x6)]";
+                style.normal.textColor = (playerIndex == 1) ? new Color(0.9f, 0.95f, 1f) : new Color(1f, 0.75f, 0.75f);
             }
         }
 
         if (isSlowModeActive)
         {
-            modeStr += "  |  [PROPULSIÓN DE MANIOBRA: -60% (Shift/RT)]";
+            modeStr += " [Modo lento]";
         }
 
-        GUI.Label(new Rect(280, Screen.height - 42, Screen.width - 290, 36), modeStr, style);
+        string prefix = (playerIndex == 1) ? "1P: " : "2P: ";
+        float yPos = playerIndex == 1 ? 
+            ((GameManager.Instance != null && GameManager.Instance.IsPlayer2Joined) ? Screen.height - 48 : Screen.height - 30) : 
+            Screen.height - 24;
+        float labelWidth = Mathf.Max(200f, Screen.width - 660);
+        GUI.Label(new Rect(280, yPos, labelWidth, 24), prefix + modeStr, style);
     }
 
     public void TakeDamage(int amount)
@@ -587,13 +575,31 @@ public class PlayerController : MonoBehaviour
 
         if (GameManager.Instance != null)
         {
-            GameManager.Instance.OnPlayerHealthChanged(currentHealth);
+            GameManager.Instance.OnPlayerHealthChanged(this, currentHealth);
         }
 
-        if (currentHealth <= 0 && GameManager.Instance != null)
+        if (currentHealth <= 0)
         {
-            GameManager.Instance.OnPlayerDied();
+            if (playerIndex == 2)
+            {
+                gameObject.SetActive(false);
+            }
+            else if (playerIndex == 1 && GameManager.Instance != null && GameManager.Instance.player2 != null && GameManager.Instance.player2.gameObject.activeInHierarchy && GameManager.Instance.player2.GetCurrentHealth() > 0)
+            {
+                gameObject.SetActive(false);
+            }
+
+            if (GameManager.Instance != null)
+            {
+                GameManager.Instance.OnPlayerDied(this);
+            }
         }
+    }
+
+    public void SetHealth(long health)
+    {
+        currentHealth = health;
+        maxHealth = System.Math.Max(maxHealth, currentHealth);
     }
 
     public long GetCurrentHealth()
@@ -629,7 +635,7 @@ public class PlayerController : MonoBehaviour
 
         if (GameManager.Instance != null)
         {
-            GameManager.Instance.OnPlayerHealthChanged(currentHealth);
+            GameManager.Instance.OnPlayerHealthChanged(this, currentHealth);
         }
     }
 }

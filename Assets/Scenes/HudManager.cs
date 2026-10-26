@@ -9,10 +9,12 @@ public class HUDManager : MonoBehaviour
     [SerializeField] private TextMeshProUGUI waveText;
     [SerializeField] private TextMeshProUGUI timerText;
 
-    private float bannerAlpha = 0f;
-    private string bannerTitle = "";
-    private string bannerSubtitle = "";
+    private GameObject bannerObj;
+    private CanvasGroup bannerCanvasGroup;
+    private TextMeshProUGUI bannerTitleText;
+    private TextMeshProUGUI bannerSubText;
     private Coroutine bannerCoroutine;
+    private TextMeshProUGUI p2PromptText;
 
     // --- MÍTICA BARRA DE VIDA DEL JEFE ---
     private bool isBossBarActive = false;
@@ -33,10 +35,107 @@ public class HUDManager : MonoBehaviour
         {
             bgImage.enabled = false;
         }
+
+        SetupHudLayout();
+        EnsureBannerUI();
+    }
+
+    private void SetupHudLayout()
+    {
+        // 1. Créditos a la derecha (esquina superior derecha)
+        if (scoreText != null)
+        {
+            RectTransform rtScore = scoreText.rectTransform;
+            rtScore.anchorMin = new Vector2(1f, 1f);
+            rtScore.anchorMax = new Vector2(1f, 1f);
+            rtScore.pivot = new Vector2(1f, 1f);
+            rtScore.anchoredPosition = new Vector2(-25f, -15f);
+            rtScore.sizeDelta = new Vector2(240f, 50f);
+            scoreText.alignment = TextAlignmentOptions.Right;
+        }
+
+        // 2. Cronómetro de Defensa a la izquierda de Créditos (sin solaparse)
+        if (timerText != null)
+        {
+            RectTransform rtTimer = timerText.rectTransform;
+            rtTimer.anchorMin = new Vector2(1f, 1f);
+            rtTimer.anchorMax = new Vector2(1f, 1f);
+            rtTimer.pivot = new Vector2(1f, 1f);
+            rtTimer.anchoredPosition = new Vector2(-280f, -15f);
+            rtTimer.sizeDelta = new Vector2(250f, 50f);
+            timerText.alignment = TextAlignmentOptions.Right;
+        }
+
+        EnsureP2PromptUI();
+    }
+
+    private void EnsureP2PromptUI()
+    {
+        if (p2PromptText != null) return;
+
+        Canvas canvas = GetComponentInParent<Canvas>();
+        if (canvas == null) canvas = FindObjectOfType<Canvas>();
+        if (canvas == null) return;
+
+        GameObject p2Obj = new GameObject("P2PromptText", typeof(RectTransform), typeof(TextMeshProUGUI));
+        p2Obj.transform.SetParent(transform.parent != null ? transform.parent : canvas.transform, false);
+
+        RectTransform rt = p2Obj.GetComponent<RectTransform>();
+        rt.anchorMin = new Vector2(1f, 0f);
+        rt.anchorMax = new Vector2(1f, 0f);
+        rt.pivot = new Vector2(1f, 0f);
+        rt.anchoredPosition = new Vector2(-25f, 20f);
+        rt.sizeDelta = new Vector2(420f, 50f);
+
+        p2PromptText = p2Obj.GetComponent<TextMeshProUGUI>();
+        if (healthText != null && healthText.font != null) p2PromptText.font = healthText.font;
+        p2PromptText.alignment = TextAlignmentOptions.Right;
+        p2PromptText.fontSize = 24;
+        p2PromptText.fontStyle = FontStyles.Bold;
+        p2PromptText.enableWordWrapping = false;
+        p2PromptText.raycastTarget = false;
+        p2PromptText.text = "";
+    }
+
+    public void UpdateP2Status(bool isConnected, bool isJoined, long currentHealth, long maxHealth)
+    {
+        EnsureP2PromptUI();
+        if (p2PromptText == null) return;
+
+        if (isJoined)
+        {
+            if (currentHealth <= 0)
+            {
+                p2PromptText.text = "<color=#FF2222><b>2P CASCO:</b> DERRIBADO</color>";
+            }
+            else
+            {
+                string labelColor = currentHealth <= 1 ? "#FF2222" : "#FF5555";
+                p2PromptText.text = $"<color={labelColor}><b>2P CASCO:</b></color> <color=#FFFFFF>{currentHealth}</color><color=#FFAAAA>/{maxHealth}</color>";
+            }
+        }
+        else if (isConnected)
+        {
+            p2PromptText.text = "<color=#FFDF59><b>2P: Presione start para jugar</b></color>";
+        }
+        else
+        {
+            p2PromptText.text = "";
+        }
+    }
+
+    public void UpdateP2Health(long current, long max)
+    {
+        UpdateP2Status(true, true, current, max);
     }
 
     void Update()
     {
+        if (GameManager.Instance != null && (GameManager.Instance.currentState == GameManager.GameState.Won || GameManager.Instance.currentState == GameManager.GameState.Lost))
+        {
+            HideWaveBannerImmediately();
+        }
+
         if (isBossBarActive)
         {
             float targetPct = Mathf.Clamp01(bossCurrentHealth / Mathf.Max(1f, bossMaxHealth));
@@ -64,13 +163,20 @@ public class HUDManager : MonoBehaviour
         }
     }
 
-    public void UpdateHealth(long current, long max)
+    public void UpdateHealth(long current, long max, bool hasPlayer2 = false)
     {
         if (healthText != null)
         {
+            string prefix = hasPlayer2 ? "1P CASCO:" : "CASCO:";
             string labelColor = current <= 1 ? "#FF4444" : "#00F5D4";
-            healthText.text = $"<color={labelColor}><b>CASCO:</b></color> <color=#FFFFFF>{current}</color><color=#7FE7D9>/{max}</color>";
+            healthText.text = $"<color={labelColor}><b>{prefix}</b></color> <color=#FFFFFF>{current}</color><color=#7FE7D9>/{max}</color>";
         }
+    }
+
+    public void UpdateHealth(long current, long max)
+    {
+        bool has2P = GameManager.Instance != null && GameManager.Instance.IsPlayer2Joined;
+        UpdateHealth(current, max, has2P);
     }
 
     public void UpdateHealth(int current, int max)
@@ -115,10 +221,91 @@ public class HUDManager : MonoBehaviour
         }
     }
 
+    private void EnsureBannerUI()
+    {
+        if (bannerObj != null) return;
+
+        Canvas canvas = GetComponentInParent<Canvas>();
+        if (canvas == null) canvas = FindObjectOfType<Canvas>();
+        if (canvas == null) return;
+
+        bannerObj = new GameObject("WaveBannerContainer", typeof(RectTransform), typeof(CanvasGroup));
+        bannerObj.transform.SetParent(canvas.transform, false);
+        // Colocar al inicio del Canvas para que los paneles modales (UpgradePanel, GameOverPanel) se superpongan encima
+        bannerObj.transform.SetSiblingIndex(0);
+
+        RectTransform rt = bannerObj.GetComponent<RectTransform>();
+        rt.anchorMin = Vector2.zero;
+        rt.anchorMax = Vector2.one;
+        rt.offsetMin = Vector2.zero;
+        rt.offsetMax = Vector2.zero;
+
+        bannerCanvasGroup = bannerObj.GetComponent<CanvasGroup>();
+        bannerCanvasGroup.alpha = 0f;
+        bannerCanvasGroup.blocksRaycasts = false;
+        bannerCanvasGroup.interactable = false;
+
+        // Título del banner
+        GameObject titleObj = new GameObject("BannerTitle", typeof(RectTransform), typeof(TextMeshProUGUI));
+        titleObj.transform.SetParent(bannerObj.transform, false);
+        RectTransform titleRt = titleObj.GetComponent<RectTransform>();
+        titleRt.anchorMin = new Vector2(0f, 0.5f);
+        titleRt.anchorMax = new Vector2(1f, 0.5f);
+        titleRt.pivot = new Vector2(0.5f, 0.5f);
+        titleRt.anchoredPosition = new Vector2(0f, 90f);
+        titleRt.sizeDelta = new Vector2(0f, 110f);
+
+        bannerTitleText = titleObj.GetComponent<TextMeshProUGUI>();
+        if (healthText != null && healthText.font != null) bannerTitleText.font = healthText.font;
+        bannerTitleText.alignment = TextAlignmentOptions.Center;
+        bannerTitleText.fontSize = 54;
+        bannerTitleText.fontStyle = FontStyles.Bold;
+        bannerTitleText.color = Color.white;
+        bannerTitleText.enableWordWrapping = false;
+        bannerTitleText.raycastTarget = false;
+
+        // Subtítulo del banner
+        GameObject subObj = new GameObject("BannerSubtitle", typeof(RectTransform), typeof(TextMeshProUGUI));
+        subObj.transform.SetParent(bannerObj.transform, false);
+        RectTransform subRt = subObj.GetComponent<RectTransform>();
+        subRt.anchorMin = new Vector2(0f, 0.5f);
+        subRt.anchorMax = new Vector2(1f, 0.5f);
+        subRt.pivot = new Vector2(0.5f, 0.5f);
+        subRt.anchoredPosition = new Vector2(0f, 30f);
+        subRt.sizeDelta = new Vector2(0f, 60f);
+
+        bannerSubText = subObj.GetComponent<TextMeshProUGUI>();
+        if (healthText != null && healthText.font != null) bannerSubText.font = healthText.font;
+        bannerSubText.alignment = TextAlignmentOptions.Center;
+        bannerSubText.fontSize = 28;
+        bannerSubText.fontStyle = FontStyles.Bold;
+        bannerSubText.color = new Color(1f, 0.88f, 0.35f, 1f);
+        bannerSubText.enableWordWrapping = false;
+        bannerSubText.raycastTarget = false;
+
+        bannerObj.SetActive(false);
+    }
+
     public void ShowWaveBanner(string title, string subtitle = null)
     {
-        bannerTitle = title;
-        bannerSubtitle = subtitle;
+        EnsureBannerUI();
+        if (bannerObj == null) return;
+
+        bool isBoss = title.Contains("JEFE") || title.Contains("NODRIZA") || title.Contains("ALERTA");
+        bannerTitleText.text = title;
+        bannerTitleText.color = isBoss ? new Color(1f, 0.25f, 0.25f, 1f) : Color.white;
+
+        if (!string.IsNullOrEmpty(subtitle))
+        {
+            bannerSubText.text = subtitle;
+            bannerSubText.gameObject.SetActive(true);
+        }
+        else
+        {
+            bannerSubText.gameObject.SetActive(false);
+        }
+
+        bannerObj.SetActive(true);
 
         if (bannerCoroutine != null)
         {
@@ -129,24 +316,49 @@ public class HUDManager : MonoBehaviour
 
     private IEnumerator BannerDisplayRoutine()
     {
-        bannerAlpha = 1f;
+        if (bannerCanvasGroup == null) yield break;
 
-        // Se muestra completo durante 3 segundos
-        yield return new WaitForSeconds(3.0f);
+        bannerCanvasGroup.alpha = 1f;
 
-        // Luego se desvanece lentamente
-        float fadeDuration = 1.2f;
+        // Se muestra completo durante 2.5s usando tiempo sin escalar para que no se quede congelado
+        float displayTime = 2.5f;
         float elapsed = 0f;
-
-        while (elapsed < fadeDuration)
+        while (elapsed < displayTime)
         {
-            elapsed += Time.deltaTime;
-            bannerAlpha = Mathf.Clamp01(1f - (elapsed / fadeDuration));
+            elapsed += Time.unscaledDeltaTime;
             yield return null;
         }
 
-        bannerAlpha = 0f;
+        // Desvanecimiento suave
+        float fadeDuration = 1.0f;
+        elapsed = 0f;
+        while (elapsed < fadeDuration)
+        {
+            elapsed += Time.unscaledDeltaTime;
+            bannerCanvasGroup.alpha = Mathf.Clamp01(1f - (elapsed / fadeDuration));
+            yield return null;
+        }
+
+        bannerCanvasGroup.alpha = 0f;
+        if (bannerObj != null) bannerObj.SetActive(false);
         bannerCoroutine = null;
+    }
+
+    public void HideWaveBannerImmediately()
+    {
+        if (bannerCoroutine != null)
+        {
+            StopCoroutine(bannerCoroutine);
+            bannerCoroutine = null;
+        }
+        if (bannerCanvasGroup != null)
+        {
+            bannerCanvasGroup.alpha = 0f;
+        }
+        if (bannerObj != null)
+        {
+            bannerObj.SetActive(false);
+        }
     }
 
     // --- MÉTODOS DE LA BARRA DE VIDA DEL JEFE ---
@@ -189,65 +401,7 @@ public class HUDManager : MonoBehaviour
 
     void OnGUI()
     {
-        DrawWaveBanner();
         DrawBossHealthBar();
-    }
-
-    private void DrawWaveBanner()
-    {
-        if (bannerAlpha <= 0.001f || string.IsNullOrEmpty(bannerTitle)) return;
-        if (GameManager.Instance != null && (GameManager.Instance.currentState == GameManager.GameState.Won || GameManager.Instance.currentState == GameManager.GameState.Lost)) return;
-
-        int screenW = Screen.width;
-        int screenH = Screen.height;
-
-        int titleSize = Mathf.Clamp(Mathf.RoundToInt(screenH * 0.085f), 36, 120);
-        int subtitleSize = Mathf.Clamp(Mathf.RoundToInt(screenH * 0.045f), 20, 65);
-
-        bool isBoss = bannerTitle.Contains("JEFE") || bannerTitle.Contains("NODRIZA");
-
-        GUIStyle titleStyle = new GUIStyle(GUI.skin.label)
-        {
-            alignment = TextAnchor.MiddleCenter,
-            fontSize = titleSize,
-            fontStyle = FontStyle.Bold
-        };
-
-        Color titleColor = isBoss ? new Color(1f, 0.22f, 0.22f, bannerAlpha) : new Color(1f, 1f, 1f, bannerAlpha);
-        Color shadowColor = new Color(0f, 0f, 0f, bannerAlpha * 0.85f);
-
-        float centerY = screenH * 0.40f;
-        float titleHeight = titleSize * 1.35f;
-        Rect titleRect = new Rect(0, centerY - (titleHeight * 0.5f), screenW, titleHeight);
-
-        // Sombra de contraste para legibilidad sobre el fondo
-        titleStyle.normal.textColor = shadowColor;
-        GUI.Label(new Rect(titleRect.x + 3, titleRect.y + 3, titleRect.width, titleRect.height), bannerTitle, titleStyle);
-
-        // Título principal frontal
-        titleStyle.normal.textColor = titleColor;
-        GUI.Label(titleRect, bannerTitle, titleStyle);
-
-        // Subtítulo ("¡Prepárate!") si existe
-        if (!string.IsNullOrEmpty(bannerSubtitle))
-        {
-            GUIStyle subStyle = new GUIStyle(GUI.skin.label)
-            {
-                alignment = TextAnchor.MiddleCenter,
-                fontSize = subtitleSize,
-                fontStyle = FontStyle.Bold
-            };
-
-            float subY = titleRect.y + titleHeight + 2f;
-            float subHeight = subtitleSize * 1.35f;
-            Rect subRect = new Rect(0, subY, screenW, subHeight);
-
-            subStyle.normal.textColor = shadowColor;
-            GUI.Label(new Rect(subRect.x + 2, subRect.y + 2, subRect.width, subRect.height), bannerSubtitle, subStyle);
-
-            subStyle.normal.textColor = new Color(1f, 0.88f, 0.35f, bannerAlpha);
-            GUI.Label(subRect, bannerSubtitle, subStyle);
-        }
     }
 
     private void DrawBossHealthBar()

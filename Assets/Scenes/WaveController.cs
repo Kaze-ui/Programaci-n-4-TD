@@ -13,7 +13,7 @@ public class EnemySpawnEntry
 public class WaveDefinition
 {
     public string waveName = "Oleada";
-    public float waveDuration = 45f;
+    public float waveDuration = 110f;
     public EnemySpawnEntry[] enemies;
     public float spawnStagger = 0.6f;
 }
@@ -41,6 +41,9 @@ public class WaveController : MonoBehaviour
     private bool isSpawning = false;
     private Coroutine spawnCoroutine;
 
+    public bool hasReachedWave1Upgrades { get; private set; } = false;
+    public bool CanPlayer2Join => currentWaveIndex == 0 && !hasReachedWave1Upgrades;
+
     [Header("Prefabs de enemigos para generación dinámica")]
     public GameObject tier1Prefab;
     public GameObject tier2Prefab;
@@ -51,8 +54,8 @@ public class WaveController : MonoBehaviour
     {
         Instance = this;
 
-        // Duración fijada para todas las oleadas: 1 minuto y 10 segundos (70 segundos)
-        const float WAVE_DURATION_SECONDS = 70f;
+        // Duración fijada para todas las oleadas: 110 segundos (70s base + 40s adicionales)
+        const float WAVE_DURATION_SECONDS = 110f;
         if (waves != null)
         {
             for (int i = 0; i < waves.Length; i++)
@@ -149,6 +152,27 @@ public class WaveController : MonoBehaviour
         waveActive = false; // Pasa inmediatamente al panel de mejoras
     }
 
+    public void OnPlayer2Joined()
+    {
+        // Añade 15 segundos más de duración a cada oleada cuando entra el segundo jugador
+        if (waves != null)
+        {
+            for (int i = 0; i < waves.Length; i++)
+            {
+                if (waves[i] != null) waves[i].waveDuration += 15f;
+            }
+        }
+
+        if (waveActive)
+        {
+            waveTimer += 15f;
+            if (GameManager.Instance != null && GameManager.Instance.hudManager != null)
+            {
+                GameManager.Instance.hudManager.UpdateTimer(waveTimer);
+            }
+        }
+    }
+
     public void StartWaves()
     {
         EnemyController.ClearReservedPositions();
@@ -192,17 +216,16 @@ public class WaveController : MonoBehaviour
             // Condición robusta: termina si ya no está spawneando Y realmente no queda ningún enemigo vivo en pantalla
             if (!isSpawning && aliveEnemies.Count == 0)
             {
-                if (waveTimer > 0f && GameManager.Instance != null && GameManager.Instance.hudManager != null)
+                if (GameManager.Instance != null && GameManager.Instance.hudManager != null)
                 {
                     GameManager.Instance.hudManager.UpdateTimer(0f);
                     GameManager.Instance.hudManager.ShowWaveBanner("¡SECTOR ASEGURADO!", "Todos los hostiles eliminados");
-                    yield return new WaitForSeconds(1.2f);
+                    yield return new WaitForSeconds(3.0f);
                 }
                 waveActive = false; // completada de verdad
             }
             else if (waveTimer <= 0f)
             {
-                waveActive = false; // se acabó el tiempo: pasa igual, sin puntos de los sobrevivientes
                 if (spawnCoroutine != null)
                 {
                     StopCoroutine(spawnCoroutine);
@@ -214,6 +237,15 @@ public class WaveController : MonoBehaviour
                 {
                     if (e != null) e.DisableScoring();
                 }
+
+                if (GameManager.Instance != null && GameManager.Instance.hudManager != null)
+                {
+                    GameManager.Instance.hudManager.UpdateTimer(0f);
+                    GameManager.Instance.hudManager.ShowWaveBanner("¡TIEMPO CUMPLIDO!", "Sector completado");
+                    yield return new WaitForSeconds(3.0f);
+                }
+
+                waveActive = false; // se acabó el tiempo: pasa igual, sin puntos de los sobrevivientes
             }
 
             yield return null;
@@ -222,6 +254,13 @@ public class WaveController : MonoBehaviour
         yield return StartCoroutine(ShowUpgradePanelAndWait());
 
         currentWaveIndex++;
+
+        // Revivir a jugadores caídos para la siguiente oleada con 5 puntos de salud
+        if (GameManager.Instance != null)
+        {
+            GameManager.Instance.ReviveDeadPlayersForNextWave();
+        }
+
         if (currentWaveIndex < waves.Length)
         {
             StartCoroutine(RunWave(currentWaveIndex));
@@ -302,6 +341,18 @@ public class WaveController : MonoBehaviour
     IEnumerator ShowUpgradePanelAndWait()
     {
         if (upgradePanel == null) yield break;
+
+        if (currentWaveIndex == 0)
+        {
+            hasReachedWave1Upgrades = true;
+        }
+
+        upgradePanel.transform.SetAsLastSibling();
+
+        if (GameManager.Instance != null && GameManager.Instance.hudManager != null)
+        {
+            GameManager.Instance.hudManager.HideWaveBannerImmediately();
+        }
 
         Time.timeScale = 0f; // Pausa todo el gameplay (movimiento, balas, enemigos)
 

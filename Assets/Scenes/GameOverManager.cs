@@ -54,6 +54,7 @@ public class GameOverManager : MonoBehaviour
 
     void OnEnable()
     {
+        transform.SetAsLastSibling();
         if (nameEntryGroup != null) nameEntryGroup.SetActive(true);
         if (postSubmitGroup != null) postSubmitGroup.SetActive(false);
         RefreshLeaderboardUI();

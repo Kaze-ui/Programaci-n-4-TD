@@ -191,5 +191,5 @@ MonoBehaviour:
   bigBulletPrefab: {fileID: 0}
   laserPrefab: {fileID: 0}
   fireCadence: 2.17
-  tier1BulletSpeed: 240
+  tier1BulletSpeed: 276
   contactDamage: 1

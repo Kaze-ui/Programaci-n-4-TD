@@ -1,8 +1,13 @@
 using UnityEngine;
 using System.Collections;
+using System.Collections.Generic;
 
 public enum EnemyTier { Tier1, Tier2, Tier3, Tier4 }
 
+/// <summary>
+/// Controlador de naves enemigas (Tiers 1 al 4).
+/// Gestiona entrada vertical, patrullaje/posicionamiento en hileras sin solapamiento, ataques y animaciones.
+/// </summary>
 public class EnemyController : MonoBehaviour, IDamageable
 {
     [Header("Tier")]
@@ -13,6 +18,7 @@ public class EnemyController : MonoBehaviour, IDamageable
     private float currentHealth;
     public int scoreValue = 1;
     private bool givesScore = true;
+    private bool isDead = false;
 
     [Header("Efecto de Explosión")]
     public Sprite explosionSprite;
@@ -21,31 +27,21 @@ public class EnemyController : MonoBehaviour, IDamageable
     public float moveSpeed = 100f;
     public float minX = -400f;
     public float maxX = 400f;
-    public float settleY = 250f; // altura donde se "asienta" tras entrar (Tiers 1-4)
-
-    [Header("Entrada (antes de empezar a disparar)")]
-    public float entrySpeed = 600f; // velocidad de la caída inicial, distinta de moveSpeed (patrulla)
-    public float entryHeightAboveSettle = 400f; // garantiza que SIEMPRE arranque por encima de settleY, sin importar el punto de spawn
+    public float settleY = 250f;
+    public float entrySpeed = 600f;
+    public float entryHeightAboveSettle = 400f;
 
     [Header("Reposicionamiento horizontal (Tier 1 y Tier 2)")]
     public float repositionMinX = -780f;
     public float repositionMaxX = 2700f;
     public float repositionSpeed = 600f;
-    public float minSeparationFromOthers = 200f; // distancia mínima en X respecto a otros enemigos vivos del mismo tier
-
-    // Estructuras por hilera (row) para acumular hasta 10 enemigos por hilera sin superponerse
+    public float minSeparationFromOthers = 200f;
     private const int MAX_ENEMIES_PER_ROW = 10;
-    public float rowVerticalSpacing = 140f; // Distancia vertical entre hileras
+    public float rowVerticalSpacing = 140f;
 
-    private static System.Collections.Generic.Dictionary<int, System.Collections.Generic.List<float>> reservedTier1Rows = 
-        new System.Collections.Generic.Dictionary<int, System.Collections.Generic.List<float>>();
-
-    private static System.Collections.Generic.Dictionary<int, System.Collections.Generic.List<float>> reservedTier2Rows = 
-        new System.Collections.Generic.Dictionary<int, System.Collections.Generic.List<float>>();
-
-    private static System.Collections.Generic.Dictionary<int, System.Collections.Generic.List<float>> reservedTier4Rows = 
-        new System.Collections.Generic.Dictionary<int, System.Collections.Generic.List<float>>();
-
+    private static Dictionary<int, List<float>> reservedTier1Rows = new Dictionary<int, List<float>>();
+    private static Dictionary<int, List<float>> reservedTier2Rows = new Dictionary<int, List<float>>();
+    private static Dictionary<int, List<float>> reservedTier4Rows = new Dictionary<int, List<float>>();
     private static int activeTier3Count = 0;
 
     private float myReservedX;
@@ -55,54 +51,45 @@ public class EnemyController : MonoBehaviour, IDamageable
 
     [Header("Disparo")]
     public GameObject bulletPrefab;
-    public GameObject bigBulletPrefab; // solo Tier3
-    public GameObject laserPrefab;     // solo Tier4
+    public GameObject bigBulletPrefab;
+    public GameObject laserPrefab;
     public float fireCadence = 1f;
-    public float tier1BulletSpeed = 240f; // 40% menos de velocidad que la base (400f -> 240f)
-    public float tier3BigBulletSpeed = 240f; // Duplicada la velocidad de las balas grandes Tier 3 (120f -> 240f)
+    public float tier1BulletSpeed = 276f; // +15% velocidad bala normal (240 * 1.15)
+    public float tier3BigBulletSpeed = 240f;
 
     [Header("Láser y Señalización (Tier 4)")]
     public GameObject telegraphPrefab;
-    public float laserCooldown = 4f;             // Intervalo de ciclo de disparo (cada 4 segundos)
-    public float laserTelegraphDuration = 2.5f;   // Duración de la mira/aviso rojo (+1s respecto a 1.5s -> 2.5s)
-    public float laserBeamLength = 5250f;         // Longitud para atravesar toda la pantalla (+50% respecto a 3500)
-    public float laserBeamWidth = 60f;            // Ancho del láser real
-    public float laserTelegraphWidth = 25f;       // Ancho del aviso rojo
+    public float laserCooldown = 4f;
+    public float laserTelegraphDuration = 2.5f;
+    public float laserBeamLength = 5250f;
+    public float laserBeamWidth = 60f;
+    public float laserTelegraphWidth = 25f;
     private GameObject activeTelegraph;
 
     private int patrolDirection = 1;
     private Transform playerTransform;
-
-    [Header("Límites de pantalla")]
     public float enemyScreenPadding = 25f;
     private Camera mainCam;
     private bool hasEnteredScreen = false;
 
-    [Header("Comportamiento de disparo Tier 1")]
+    [Header("Probabilidad de Apuntado")]
     [Range(0f, 1f)] public float tier1AimChance = 0.60f;
-    private bool aimsAtPlayer = false;
-
-    [Header("Comportamiento de disparo Tier 2")]
     [Range(0f, 1f)] public float tier2AimChance = 0.40f;
-    private bool tier2AimsAtPlayer = false;
-
-    [Header("Comportamiento de disparo Tier 3")]
     [Range(0f, 1f)] public float tier3AimChance = 0.55f;
+    private bool aimsAtPlayer = false;
+    private bool tier2AimsAtPlayer = false;
     private bool tier3AimsAtPlayer = false;
 
-    [Header("Offset de aparición de balas")]
     public float bigBulletSpawnOffset = 180f;
 
-    public float GetScreenTopY(float extraPadding = 150f)
+    public float GetScreenTopY(float extraPadding = 50f)
     {
         if (mainCam == null) mainCam = Camera.main;
         if (mainCam != null)
         {
             float paddingY = enemyScreenPadding;
-            if (TryGetComponent<SpriteRenderer>(out var sr) && sr.sprite != null)
-                paddingY = Mathf.Max(paddingY, sr.bounds.extents.y);
-            else if (TryGetComponent<Collider2D>(out var col))
-                paddingY = Mathf.Max(paddingY, col.bounds.extents.y);
+            if (TryGetComponent<SpriteRenderer>(out var sr) && sr.sprite != null) paddingY = Mathf.Max(paddingY, sr.bounds.extents.y);
+            else if (TryGetComponent<Collider2D>(out var col)) paddingY = Mathf.Max(paddingY, col.bounds.extents.y);
             return mainCam.transform.position.y + mainCam.orthographicSize + paddingY + extraPadding;
         }
         return 1800f;
@@ -110,95 +97,73 @@ public class EnemyController : MonoBehaviour, IDamageable
 
     void Start()
     {
+        if (GameManager.Instance != null && GameManager.Instance.IsPlayer2Joined)
+            maxHealth = Mathf.Max(1, Mathf.RoundToInt(maxHealth * 1.9f));
+
         currentHealth = maxHealth;
         mainCam = Camera.main;
 
-        // Puntuación programada según dificultad, vida, ataques y frecuencia:
-        // Tier 1 (1 HP, disparos simples, carne de cañón): 1 punto
-        // Tier 2 (2 HP, ráfagas dobles, movilidad lateral): 3 puntos
-        // Tier 3 (3 HP, patrullaje horizontal, ráfaga triple + bala gigante veloz): 6 puntos
-        // Tier 4 (4 HP, torreta acorazada pesada, rayo láser letal): 10 puntos
-        switch (tier)
+        // Asignación de puntajes por tier
+        scoreValue = tier switch
         {
-            case EnemyTier.Tier1:
-                scoreValue = 1;
-                break;
-            case EnemyTier.Tier2:
-                scoreValue = 3;
-                break;
-            case EnemyTier.Tier3:
-                scoreValue = 6;
-                break;
-            case EnemyTier.Tier4:
-                scoreValue = 10;
-                break;
-        }
+            EnemyTier.Tier1 => 1,
+            EnemyTier.Tier2 => 3,
+            EnemyTier.Tier3 => 6,
+            EnemyTier.Tier4 => 10,
+            _ => 1
+        };
 
         if (tier == EnemyTier.Tier1)
         {
-            aimsAtPlayer = Random.value < tier1AimChance; // 60% de probabilidad por enemigo
-            // Disminución del 70% de cadencia (mayor intervalo entre disparos, de 1.275s a 2.17s)
-            if (Mathf.Approximately(fireCadence, 1.275f) || Mathf.Approximately(fireCadence, 1.02f) || Mathf.Approximately(fireCadence, 1f))
-            {
-                fireCadence = 2.17f;
-            }
+            aimsAtPlayer = Random.value < tier1AimChance;
+            if (Mathf.Approximately(fireCadence, 1.275f) || Mathf.Approximately(fireCadence, 1.02f) || Mathf.Approximately(fireCadence, 1f) || Mathf.Approximately(fireCadence, 2.17f))
+                fireCadence = 2.50f; // -15% velocidad de generación (2.17s * 1.15)
+            else
+                fireCadence *= 1.15f;
+
+            if (Mathf.Approximately(tier1BulletSpeed, 240f) || Mathf.Approximately(tier1BulletSpeed, 168f))
+                tier1BulletSpeed = 276f; // +15% velocidad bala (240 * 1.15)
         }
         else if (tier == EnemyTier.Tier2)
         {
-            tier2AimsAtPlayer = Random.value < tier2AimChance; // 40% de probabilidad por enemigo
+            tier2AimsAtPlayer = Random.value < tier2AimChance;
+            if (Mathf.Approximately(fireCadence, 1f))
+                fireCadence = 1.15f; // -15% velocidad de generación (1.0s * 1.15)
+            else
+                fireCadence *= 1.15f;
         }
         else if (tier == EnemyTier.Tier3)
         {
-            tier3AimsAtPlayer = Random.value < tier3AimChance; // 55% de probabilidad por enemigo
+            tier3AimsAtPlayer = Random.value < tier3AimChance;
+            if (Mathf.Approximately(fireCadence, 1f))
+                fireCadence = 1.15f; // -15% velocidad de generación (1.0s * 1.15)
+            else
+                fireCadence *= 1.15f;
         }
         else if (tier == EnemyTier.Tier4)
         {
+            laserCooldown *= 1.15f; // -15% frecuencia de disparo del láser
             bool isBossFight = (GameManager.Instance != null && GameManager.Instance.IsInBossFight);
             float baseTier4Y = isBossFight ? 1380f : 1150f;
 
             if (!isBossFight)
             {
-                // Si hay hileras de Tier 1 o Tier 2 activas, colocarse debajo de ellas
-                int activeT1 = GetActiveTier1RowCount();
-                int activeT2 = GetActiveTier2RowCount();
+                int activeT1 = GetActiveRowCount(reservedTier1Rows);
+                int activeT2 = GetActiveRowCount(reservedTier2Rows);
                 float lowestT1 = (activeT1 > 0) ? (1450f - (activeT1 * rowVerticalSpacing)) : 1600f;
                 float lowestT2 = (activeT2 > 0) ? (1300f - (activeT2 * rowVerticalSpacing)) : 1600f;
                 float lowestAbove = Mathf.Min(lowestT1, lowestT2);
-                if (lowestAbove < 1600f)
-                {
-                    baseTier4Y = Mathf.Min(baseTier4Y, lowestAbove - 20f);
-                }
+                if (lowestAbove < 1600f) baseTier4Y = Mathf.Min(baseTier4Y, lowestAbove - 20f);
             }
 
-            int targetRow = 0;
-            while (true)
-            {
-                if (!reservedTier4Rows.ContainsKey(targetRow))
-                    reservedTier4Rows[targetRow] = new System.Collections.Generic.List<float>();
-
-                if (reservedTier4Rows[targetRow].Count < MAX_ENEMIES_PER_ROW)
-                    break;
-
-                targetRow++;
-            }
-            myRowIndex = targetRow;
-            myAssignedSettleY = baseTier4Y - (myRowIndex * rowVerticalSpacing);
-            settleY = myAssignedSettleY;
-
-            float randomX = PickNonOverlappingX(reservedTier4Rows[myRowIndex]);
-            myReservedX = randomX;
-            hasReservedPosition = true;
-            reservedTier4Rows[myRowIndex].Add(myReservedX);
-            transform.position = new Vector3(randomX, transform.position.y, transform.position.z);
+            ReserveRowPosition(reservedTier4Rows, baseTier4Y);
+            transform.position = new Vector3(myReservedX, transform.position.y, transform.position.z);
         }
 
-        // Sin importar qué punto de spawn le tocó (arriba/izquierda/derecha), lo reposicionamos
-        // en Y para que SIEMPRE arranque completamente por fuera del borde superior de la pantalla.
-        // Así garantizamos que la entrada sea siempre deslizándose verticalmente desde arriba.
         float spawnY = Mathf.Max(settleY + entryHeightAboveSettle, GetScreenTopY(150f));
         transform.position = new Vector3(transform.position.x, spawnY, transform.position.z);
 
-        PlayerController pc = FindAnyObjectByType<PlayerController>();
+        var pc = FindAnyObjectByType<PlayerController>();
         if (pc != null) playerTransform = pc.transform;
 
         StartCoroutine(EnterAndBehave());
@@ -210,228 +175,123 @@ public class EnemyController : MonoBehaviour, IDamageable
         ClampToScreen();
     }
 
-    public float GetScreenMinX()
+    private float GetScreenHorizontalLimit(bool isMax)
     {
         if (mainCam == null) mainCam = Camera.main;
         if (mainCam != null)
         {
             float horzExtent = mainCam.orthographicSize * mainCam.aspect;
             float paddingX = enemyScreenPadding;
-            if (TryGetComponent<SpriteRenderer>(out var sr) && sr.sprite != null)
-                paddingX = Mathf.Max(paddingX, sr.bounds.extents.x);
-            else if (TryGetComponent<Collider2D>(out var col))
-                paddingX = Mathf.Max(paddingX, col.bounds.extents.x);
-            return mainCam.transform.position.x - horzExtent + paddingX;
+            if (TryGetComponent<SpriteRenderer>(out var sr) && sr.sprite != null) paddingX = Mathf.Max(paddingX, sr.bounds.extents.x);
+            else if (TryGetComponent<Collider2D>(out var col)) paddingX = Mathf.Max(paddingX, col.bounds.extents.x);
+
+            return isMax ? (mainCam.transform.position.x + horzExtent - paddingX) : (mainCam.transform.position.x - horzExtent + paddingX);
         }
-        return repositionMinX;
+        return isMax ? repositionMaxX : repositionMinX;
     }
 
-    public float GetScreenMaxX()
-    {
-        if (mainCam == null) mainCam = Camera.main;
-        if (mainCam != null)
-        {
-            float horzExtent = mainCam.orthographicSize * mainCam.aspect;
-            float paddingX = enemyScreenPadding;
-            if (TryGetComponent<SpriteRenderer>(out var sr) && sr.sprite != null)
-                paddingX = Mathf.Max(paddingX, sr.bounds.extents.x);
-            else if (TryGetComponent<Collider2D>(out var col))
-                paddingX = Mathf.Max(paddingX, col.bounds.extents.x);
-            return mainCam.transform.position.x + horzExtent - paddingX;
-        }
-        return repositionMaxX;
-    }
+    public float GetScreenMinX() => GetScreenHorizontalLimit(false);
+    public float GetScreenMaxX() => GetScreenHorizontalLimit(true);
 
     void ClampToScreen()
     {
         if (mainCam == null) mainCam = Camera.main;
         if (mainCam == null) return;
 
+        float horzExtent = mainCam.orthographicSize * mainCam.aspect;
         float vertExtent = mainCam.orthographicSize;
-        float horzExtent = vertExtent * mainCam.aspect;
+        float pad = enemyScreenPadding;
 
-        float paddingX = enemyScreenPadding;
-        float paddingY = enemyScreenPadding;
-
-        if (TryGetComponent<SpriteRenderer>(out var sr) && sr.sprite != null)
-        {
-            paddingX = Mathf.Max(paddingX, sr.bounds.extents.x);
-            paddingY = Mathf.Max(paddingY, sr.bounds.extents.y);
-        }
-        else if (TryGetComponent<Collider2D>(out var col))
-        {
-            paddingX = Mathf.Max(paddingX, col.bounds.extents.x);
-            paddingY = Mathf.Max(paddingY, col.bounds.extents.y);
-        }
-
-        float minScreenX = mainCam.transform.position.x - horzExtent + paddingX;
-        float maxScreenX = mainCam.transform.position.x + horzExtent - paddingX;
-        float minScreenY = mainCam.transform.position.y - vertExtent + paddingY;
-        float maxScreenY = mainCam.transform.position.y + vertExtent - paddingY;
+        float minScreenX = mainCam.transform.position.x - horzExtent + pad;
+        float maxScreenX = mainCam.transform.position.x + horzExtent - pad;
+        float minScreenY = mainCam.transform.position.y - vertExtent + pad;
+        float maxScreenY = mainCam.transform.position.y + vertExtent - pad;
 
         Vector3 pos = transform.position;
-
-        // Detecta si el enemigo ya entró al área visible de la pantalla
         if (!hasEnteredScreen)
         {
-            if (pos.x >= minScreenX && pos.x <= maxScreenX &&
-                pos.y >= minScreenY && pos.y <= maxScreenY)
-            {
+            if (pos.x >= minScreenX && pos.x <= maxScreenX && pos.y >= minScreenY && pos.y <= maxScreenY)
                 hasEnteredScreen = true;
-            }
         }
 
-        // Una vez dentro, se le impide salir de los límites horizontales y verticales
         if (hasEnteredScreen)
         {
-            float clampedX = Mathf.Clamp(pos.x, minScreenX, maxScreenX);
-            float clampedY = Mathf.Clamp(pos.y, minScreenY, maxScreenY);
-
-            // Si es Tier 3 (patrullero horizontal), invierte dirección si toca los bordes
             if (tier == EnemyTier.Tier3)
             {
                 if (pos.x >= maxScreenX) patrolDirection = -1;
                 else if (pos.x <= minScreenX) patrolDirection = 1;
             }
-
-            pos.x = clampedX;
-            pos.y = clampedY;
+            pos.x = Mathf.Clamp(pos.x, minScreenX, maxScreenX);
+            pos.y = Mathf.Clamp(pos.y, minScreenY, maxScreenY);
             transform.position = pos;
         }
     }
 
     IEnumerator EnterAndBehave()
     {
-        // Entrada: asignación de hilera y posición reservada
         if (tier == EnemyTier.Tier1)
         {
-            // Busca la primera hilera que tenga menos de 10 enemigos
-            int targetRow = 0;
-            while (true)
-            {
-                if (!reservedTier1Rows.ContainsKey(targetRow))
-                    reservedTier1Rows[targetRow] = new System.Collections.Generic.List<float>();
-
-                if (reservedTier1Rows[targetRow].Count < MAX_ENEMIES_PER_ROW)
-                    break;
-
-                targetRow++;
-            }
-            myRowIndex = targetRow;
-            myAssignedSettleY = settleY - (myRowIndex * rowVerticalSpacing);
-
-            if (!hasReservedPosition)
-            {
-                myReservedX = PickNonOverlappingX(reservedTier1Rows[myRowIndex]);
-                hasReservedPosition = true;
-                reservedTier1Rows[myRowIndex].Add(myReservedX);
-            }
+            ReserveRowPosition(reservedTier1Rows, settleY);
         }
         else if (tier == EnemyTier.Tier2)
         {
-            int targetRow = 0;
-            while (true)
-            {
-                if (!reservedTier2Rows.ContainsKey(targetRow))
-                    reservedTier2Rows[targetRow] = new System.Collections.Generic.List<float>();
-
-                if (reservedTier2Rows[targetRow].Count < MAX_ENEMIES_PER_ROW)
-                    break;
-
-                targetRow++;
-            }
-            myRowIndex = targetRow;
-
-            // Si hay hileras de Tier 1 activas, la hilera de Tier 2 se posiciona debajo de ellas
-            float baseTier2Y = settleY;
-            int activeTier1Rows = GetActiveTier1RowCount();
-            if (activeTier1Rows > 0)
-            {
-                baseTier2Y = 1450f - (activeTier1Rows * rowVerticalSpacing);
-            }
-
-            myAssignedSettleY = baseTier2Y - (myRowIndex * rowVerticalSpacing);
-
-            if (!hasReservedPosition)
-            {
-                myReservedX = PickNonOverlappingX(reservedTier2Rows[myRowIndex]);
-                hasReservedPosition = true;
-                reservedTier2Rows[myRowIndex].Add(myReservedX);
-            }
-        }
-        else if (tier == EnemyTier.Tier4)
-        {
-            // Tier 4 ya asignó myRowIndex, myAssignedSettleY y myReservedX en Start()
+            int activeTier1Rows = GetActiveRowCount(reservedTier1Rows);
+            float baseTier2Y = (activeTier1Rows > 0) ? (1450f - (activeTier1Rows * rowVerticalSpacing)) : settleY;
+            ReserveRowPosition(reservedTier2Rows, baseTier2Y);
         }
         else if (tier == EnemyTier.Tier3)
         {
             float screenLeft = GetScreenMinX();
             float screenRight = GetScreenMaxX();
-            float clampedX = Mathf.Clamp(transform.position.x, screenLeft, screenRight);
-            
+            transform.position = new Vector3(Mathf.Clamp(transform.position.x, screenLeft, screenRight), transform.position.y, transform.position.z);
+
             int lane = activeTier3Count % 3;
             activeTier3Count++;
             myAssignedSettleY = settleY - (lane * 80f);
 
-            // Si entra por la mitad derecha, que comience patrullando hacia la izquierda
-            patrolDirection = (clampedX > (screenLeft + screenRight) * 0.5f) ? -1 : 1;
-        }
-        else
-        {
-            myAssignedSettleY = settleY;
+            if (transform.position.x > (screenLeft + screenRight) * 0.5f) patrolDirection = -1;
+            else patrolDirection = 1;
         }
 
-        // Comienzan a disparar de inmediato: pueden disparar mientras se mueven tanto en Y como en X
-        switch (tier)
-        {
-            case EnemyTier.Tier1:
-                StartCoroutine(FireTier1());
-                break;
-            case EnemyTier.Tier2:
-                StartCoroutine(FireTier2());
-                break;
-            case EnemyTier.Tier3:
-                StartCoroutine(FireTier3());
-                break;
-            case EnemyTier.Tier4:
-                StartCoroutine(FireTier4());
-                break;
-        }
+        float targetSettleY = (tier == EnemyTier.Tier1 || tier == EnemyTier.Tier2 || tier == EnemyTier.Tier4 || tier == EnemyTier.Tier3)
+            ? myAssignedSettleY : settleY;
 
-        // 1. Movimiento en Y: descienden hacia su settleY asignado según su hilera
-        Vector3 yTarget = new Vector3(transform.position.x, myAssignedSettleY, 0f);
-        while (Vector3.Distance(transform.position, yTarget) > 5f)
+        while (transform.position.y > targetSettleY)
         {
-            transform.position = Vector3.MoveTowards(transform.position, yTarget, entrySpeed * Time.deltaTime);
+            transform.position += Vector3.down * entrySpeed * Time.deltaTime;
             yield return null;
         }
 
-        transform.position = yTarget;
-        hasEnteredScreen = true;
+        transform.position = new Vector3(transform.position.x, targetSettleY, transform.position.z);
 
-        // 2. Movimiento en X: se reposicionan horizontalmente a su slot asignado o inician patrulla
-        switch (tier)
+        if (tier == EnemyTier.Tier1)
         {
-            case EnemyTier.Tier1:
-                yield return StartCoroutine(RepositionTier1());
-                break;
-            case EnemyTier.Tier2:
-                yield return StartCoroutine(RepositionTier2());
-                break;
-            case EnemyTier.Tier3:
-                StartCoroutine(PatrolLoop());
-                break;
+            StartCoroutine(RepositionToTarget());
+            StartCoroutine(FireTier1());
+        }
+        else if (tier == EnemyTier.Tier2)
+        {
+            StartCoroutine(RepositionToTarget());
+            StartCoroutine(FireTier2());
+        }
+        else if (tier == EnemyTier.Tier3)
+        {
+            StartCoroutine(PatrolHorizontalTier3());
+            StartCoroutine(FireTier3());
+        }
+        else if (tier == EnemyTier.Tier4)
+        {
+            StartCoroutine(FireTier4());
         }
     }
 
-    IEnumerator PatrolLoop()
+    IEnumerator PatrolHorizontalTier3()
     {
         while (true)
         {
+            transform.position += Vector3.right * patrolDirection * moveSpeed * Time.deltaTime;
             float leftBound = GetScreenMinX();
             float rightBound = GetScreenMaxX();
-
-            transform.position += Vector3.right * patrolDirection * moveSpeed * Time.deltaTime;
 
             if (transform.position.x >= rightBound)
             {
@@ -443,22 +303,26 @@ public class EnemyController : MonoBehaviour, IDamageable
                 transform.position = new Vector3(leftBound, transform.position.y, transform.position.z);
                 patrolDirection = 1;
             }
-
             yield return null;
         }
     }
 
-    IEnumerator ChasePlayer()
+    private Vector3 GetAimDirection(bool shouldAim = true)
     {
-        while (true)
+        if (shouldAim)
         {
+            if (playerTransform == null)
+            {
+                var pc = FindAnyObjectByType<PlayerController>();
+                if (pc != null) playerTransform = pc.transform;
+            }
             if (playerTransform != null)
             {
-                Vector3 dir = (playerTransform.position - transform.position).normalized;
-                transform.position += dir * moveSpeed * Time.deltaTime;
+                Vector3 diff = playerTransform.position - transform.position;
+                if (diff.sqrMagnitude > 0.001f) return diff.normalized;
             }
-            yield return null;
         }
+        return Vector3.down;
     }
 
     IEnumerator FireTier1()
@@ -466,158 +330,8 @@ public class EnemyController : MonoBehaviour, IDamageable
         while (true)
         {
             yield return new WaitForSeconds(fireCadence);
-
-            Vector3 dir = Vector3.down;
-            if (aimsAtPlayer)
-            {
-                if (playerTransform == null)
-                {
-                    PlayerController pc = FindAnyObjectByType<PlayerController>();
-                    if (pc != null) playerTransform = pc.transform;
-                }
-
-                if (playerTransform != null)
-                {
-                    dir = (playerTransform.position - transform.position).normalized;
-                }
-            }
-
-            FireBullet(bulletPrefab, tier1BulletSpeed, dir);
+            FireBullet(bulletPrefab, tier1BulletSpeed, GetAimDirection(aimsAtPlayer));
         }
-    }
-
-    public static int GetActiveTier1RowCount()
-    {
-        int count = 0;
-        foreach (var kvp in reservedTier1Rows)
-        {
-            if (kvp.Value != null && kvp.Value.Count > 0)
-            {
-                count = Mathf.Max(count, kvp.Key + 1);
-            }
-        }
-        return count;
-    }
-
-    public static int GetActiveTier2RowCount()
-    {
-        int count = 0;
-        foreach (var kvp in reservedTier2Rows)
-        {
-            if (kvp.Value != null && kvp.Value.Count > 0)
-            {
-                count = Mathf.Max(count, kvp.Key + 1);
-            }
-        }
-        return count;
-    }
-
-    public static int GetActiveTier4RowCount()
-    {
-        int count = 0;
-        foreach (var kvp in reservedTier4Rows)
-        {
-            if (kvp.Value != null && kvp.Value.Count > 0)
-            {
-                count = Mathf.Max(count, kvp.Key + 1);
-            }
-        }
-        return count;
-    }
-
-    IEnumerator RepositionTier1()
-    {
-        Vector3 target = new Vector3(myReservedX, myAssignedSettleY, 0f);
-
-        while (Vector3.Distance(transform.position, target) > 5f)
-        {
-            transform.position = Vector3.MoveTowards(transform.position, target, repositionSpeed * Time.deltaTime);
-            yield return null;
-        }
-
-        transform.position = target;
-    }
-
-    IEnumerator RepositionTier2()
-    {
-        Vector3 target = new Vector3(myReservedX, myAssignedSettleY, 0f);
-
-        while (Vector3.Distance(transform.position, target) > 5f)
-        {
-            transform.position = Vector3.MoveTowards(transform.position, target, repositionSpeed * Time.deltaTime);
-            yield return null;
-        }
-
-        transform.position = target;
-    }
-
-    // Intenta encontrar una X que esté a más de minSeparationFromOthers de cualquier
-    // otro enemigo del mismo tier que ya haya reservado posición.
-    // Si tras varios intentos aleatorios no encuentra una libre (campo muy poblado),
-    // busca el espacio o hueco más grande entre las posiciones existentes para evitar superposiciones.
-    float PickNonOverlappingX(System.Collections.Generic.List<float> reservedPositions)
-    {
-        const int maxAttempts = 50;
-        float minBound = (mainCam != null) ? GetScreenMinX() : repositionMinX;
-        float maxBound = (mainCam != null) ? GetScreenMaxX() : repositionMaxX;
-
-        for (int attempt = 0; attempt < maxAttempts; attempt++)
-        {
-            float candidate = Random.Range(minBound, maxBound);
-            bool tooClose = false;
-
-            foreach (float reserved in reservedPositions)
-            {
-                if (Mathf.Abs(candidate - reserved) < minSeparationFromOthers)
-                {
-                    tooClose = true;
-                    break;
-                }
-            }
-
-            if (!tooClose)
-            {
-                return candidate;
-            }
-        }
-
-        // Fallback inteligente: si la pantalla está llena y ningún punto aleatorio cumple la distancia mínima,
-        // colocamos el enemigo en el centro del intervalo más amplio disponible.
-        if (reservedPositions.Count > 0)
-        {
-            System.Collections.Generic.List<float> sorted = new System.Collections.Generic.List<float>(reservedPositions);
-            sorted.Sort();
-
-            float bestX = (minBound + maxBound) * 0.5f;
-            float maxGap = 0f;
-
-            float leftGap = sorted[0] - minBound;
-            if (leftGap > maxGap)
-            {
-                maxGap = leftGap;
-                bestX = minBound + leftGap * 0.5f;
-            }
-
-            for (int i = 0; i < sorted.Count - 1; i++)
-            {
-                float gap = sorted[i + 1] - sorted[i];
-                if (gap > maxGap)
-                {
-                    maxGap = gap;
-                    bestX = sorted[i] + gap * 0.5f;
-                }
-            }
-
-            float rightGap = maxBound - sorted[sorted.Count - 1];
-            if (rightGap > maxGap)
-            {
-                bestX = sorted[sorted.Count - 1] + rightGap * 0.5f;
-            }
-
-            return bestX;
-        }
-
-        return Random.Range(minBound, maxBound);
     }
 
     IEnumerator FireTier2()
@@ -625,29 +339,10 @@ public class EnemyController : MonoBehaviour, IDamageable
         while (true)
         {
             yield return new WaitForSeconds(fireCadence);
-            FireBullet(bulletPrefab, 400f, GetTier2BulletDirection());
-            yield return new WaitForSeconds(0.5f);
-            FireBullet(bulletPrefab, 400f, GetTier2BulletDirection());
+            FireBullet(bulletPrefab, 460f, GetAimDirection(tier2AimsAtPlayer));
+            yield return new WaitForSeconds(0.575f);
+            FireBullet(bulletPrefab, 460f, GetAimDirection(tier2AimsAtPlayer));
         }
-    }
-
-    Vector3 GetTier2BulletDirection()
-    {
-        if (tier2AimsAtPlayer)
-        {
-            if (playerTransform == null)
-            {
-                PlayerController pc = FindAnyObjectByType<PlayerController>();
-                if (pc != null) playerTransform = pc.transform;
-            }
-
-            if (playerTransform != null)
-            {
-                return (playerTransform.position - transform.position).normalized;
-            }
-        }
-
-        return Vector3.down;
     }
 
     IEnumerator FireTier3()
@@ -655,131 +350,111 @@ public class EnemyController : MonoBehaviour, IDamageable
         while (true)
         {
             yield return new WaitForSeconds(fireCadence);
-            FireBullet(bulletPrefab, 400f, GetTier3BulletDirection());
-            yield return new WaitForSeconds(0.5f);
-            FireBullet(bulletPrefab, 400f, GetTier3BulletDirection());
-            yield return new WaitForSeconds(0.5f);
-            FireBullet(bulletPrefab, 400f, GetTier3BulletDirection());
-            yield return new WaitForSeconds(2f);
-            Vector3 dir = GetTier3BigBulletDirection();
-            Vector3 spawnOffset = dir.normalized * bigBulletSpawnOffset;
-            FireBullet(bigBulletPrefab, tier3BigBulletSpeed, dir, spawnOffset);
-        }
-    }
-
-    Vector3 GetTier3BigBulletDirection()
-    {
-        if (playerTransform == null)
-        {
-            PlayerController pc = FindAnyObjectByType<PlayerController>();
-            if (pc != null) playerTransform = pc.transform;
-        }
-
-        if (playerTransform != null)
-        {
-            return (playerTransform.position - transform.position).normalized;
-        }
-
-        return Vector3.down;
-    }
-
-    Vector3 GetTier3BulletDirection()
-    {
-        if (tier3AimsAtPlayer)
-        {
-            if (playerTransform == null)
+            for (int i = 0; i < 3; i++)
             {
-                PlayerController pc = FindAnyObjectByType<PlayerController>();
-                if (pc != null) playerTransform = pc.transform;
+                FireBullet(bulletPrefab, 460f, GetAimDirection(tier3AimsAtPlayer));
+                yield return new WaitForSeconds(0.575f);
             }
-
-            if (playerTransform != null)
-            {
-                return (playerTransform.position - transform.position).normalized;
-            }
+            yield return new WaitForSeconds(1.725f);
+            Vector3 dir = GetAimDirection(true);
+            FireBullet(bigBulletPrefab, tier3BigBulletSpeed, dir, dir * bigBulletSpawnOffset);
         }
-
-        return Vector3.down;
     }
 
     IEnumerator FireTier4()
     {
-        // Breve pausa inicial tras aterrizar en Y antes de emitir la primera señal
         yield return new WaitForSeconds(1f);
-
         while (true)
         {
-            // 1. Apuntar siempre en dirección al jugador
-            if (playerTransform == null)
-            {
-                PlayerController pc = FindAnyObjectByType<PlayerController>();
-                if (pc != null) playerTransform = pc.transform;
-            }
-
-            Vector3 dir = Vector3.down;
-            if (playerTransform != null)
-            {
-                Vector3 diff = playerTransform.position - transform.position;
-                if (diff.sqrMagnitude > 0.001f)
-                {
-                    dir = diff.normalized;
-                }
-            }
-
+            Vector3 dir = GetAimDirection(true);
             float angle = Mathf.Atan2(dir.y, dir.x) * Mathf.Rad2Deg + 90f;
             Quaternion rot = Quaternion.Euler(0f, 0f, angle);
-
-            // El centro del haz se ubica a la mitad de su longitud hacia adelante,
-            // de modo que un extremo inicie en la nave y el rayo se extienda hacia el objetivo.
             Vector3 beamCenter = transform.position + dir * (laserBeamLength * 0.5f);
 
-            // 2. Generar el "láser" rojo y transparente de señalización (no hace daño)
-            if (telegraphPrefab != null)
-            {
-                activeTelegraph = Instantiate(telegraphPrefab, beamCenter, rot);
-                activeTelegraph.transform.localScale = new Vector3(laserTelegraphWidth, laserBeamLength, 1f);
-            }
-            else
-            {
-                activeTelegraph = CreateDefaultTelegraphLaser(beamCenter, rot, laserBeamLength, laserTelegraphWidth);
-            }
+            activeTelegraph = telegraphPrefab != null
+                ? Instantiate(telegraphPrefab, beamCenter, rot)
+                : CreateDefaultTelegraphLaser(beamCenter, rot, laserBeamLength, laserTelegraphWidth);
+            activeTelegraph.transform.localScale = new Vector3(laserTelegraphWidth, laserBeamLength, 1f);
 
-            // 3. Esperar tiempo de advertencia para que el jugador se aparte (el aviso acompaña el movimiento)
             float elapsed = 0f;
             while (elapsed < laserTelegraphDuration)
             {
                 elapsed += Time.deltaTime;
-                if (activeTelegraph != null)
-                {
-                    activeTelegraph.transform.position = transform.position + dir * (laserBeamLength * 0.5f);
-                }
+                if (activeTelegraph != null) activeTelegraph.transform.position = transform.position + dir * (laserBeamLength * 0.5f);
                 yield return null;
             }
 
-            // Remover la señalización roja
-            if (activeTelegraph != null)
-            {
-                Destroy(activeTelegraph);
-                activeTelegraph = null;
-            }
+            if (activeTelegraph != null) { Destroy(activeTelegraph); activeTelegraph = null; }
 
-            // 4. Disparar el láser real (blanco y dañino) en esa posición y dirección
             Vector3 finalBeamCenter = transform.position + dir * (laserBeamLength * 0.5f);
             if (laserPrefab != null)
             {
                 GameObject realLaser = Instantiate(laserPrefab, finalBeamCenter, rot);
                 realLaser.transform.localScale = new Vector3(laserBeamWidth, laserBeamLength, 1f);
-
-                if (SoundController.Instance != null)
-                {
-                    SoundController.Instance.PlayTier4LaserSfx();
-                }
+                SoundController.Instance?.PlayTier4LaserSfx();
             }
 
-            // 5. Esperar el resto del intervalo para completar el ciclo de 3 segundos
-            float remainingCooldown = Mathf.Max(0.1f, laserCooldown - laserTelegraphDuration);
-            yield return new WaitForSeconds(remainingCooldown);
+            yield return new WaitForSeconds(Mathf.Max(0.1f, laserCooldown - laserTelegraphDuration));
         }
+    }
+
+    public static int GetActiveRowCount(Dictionary<int, List<float>> dict)
+    {
+        int count = 0;
+        foreach (var kvp in dict)
+            if (kvp.Value != null && kvp.Value.Count > 0) count = Mathf.Max(count, kvp.Key + 1);
+        return count;
+    }
+
+    public static int GetActiveTier1RowCount() => GetActiveRowCount(reservedTier1Rows);
+    public static int GetActiveTier2RowCount() => GetActiveRowCount(reservedTier2Rows);
+    public static int GetActiveTier4RowCount() => GetActiveRowCount(reservedTier4Rows);
+
+    IEnumerator RepositionToTarget()
+    {
+        Vector3 target = new Vector3(myReservedX, myAssignedSettleY, 0f);
+        while (Vector3.Distance(transform.position, target) > 5f)
+        {
+            transform.position = Vector3.MoveTowards(transform.position, target, repositionSpeed * Time.deltaTime);
+            yield return null;
+        }
+        transform.position = target;
+    }
+
+    float PickNonOverlappingX(List<float> reservedPositions)
+    {
+        float minBound = (mainCam != null) ? GetScreenMinX() : repositionMinX;
+        float maxBound = (mainCam != null) ? GetScreenMaxX() : repositionMaxX;
+
+        for (int attempt = 0; attempt < 50; attempt++)
+        {
+            float candidate = Random.Range(minBound, maxBound);
+            bool tooClose = false;
+            foreach (float reserved in reservedPositions)
+            {
+                if (Mathf.Abs(candidate - reserved) < minSeparationFromOthers) { tooClose = true; break; }
+            }
+            if (!tooClose) return candidate;
+        }
+
+        if (reservedPositions.Count > 0)
+        {
+            List<float> sorted = new List<float>(reservedPositions);
+            sorted.Sort();
+            float bestX = (minBound + maxBound) * 0.5f;
+            float maxGap = sorted[0] - minBound;
+
+            for (int i = 0; i < sorted.Count - 1; i++)
+            {
+                float gap = sorted[i + 1] - sorted[i];
+                if (gap > maxGap) { maxGap = gap; bestX = sorted[i] + gap * 0.5f; }
+            }
+            if (maxBound - sorted[sorted.Count - 1] > maxGap)
+                bestX = sorted[sorted.Count - 1] + (maxBound - sorted[sorted.Count - 1]) * 0.5f;
+
+            return bestX;
+        }
+        return Random.Range(minBound, maxBound);
     }
 
     GameObject CreateDefaultTelegraphLaser(Vector3 center, Quaternion rot, float length, float width)
@@ -790,15 +465,10 @@ public class EnemyController : MonoBehaviour, IDamageable
         obj.transform.localScale = new Vector3(width, length, 1f);
 
         SpriteRenderer sr = obj.AddComponent<SpriteRenderer>();
-        if (bulletPrefab != null && bulletPrefab.TryGetComponent<SpriteRenderer>(out var bulletSr))
+        if (bulletPrefab != null && bulletPrefab.TryGetComponent<SpriteRenderer>(out var bSr))
         {
-            sr.sprite = bulletSr.sprite;
-            sr.material = bulletSr.sharedMaterial;
-        }
-        else if (TryGetComponent<SpriteRenderer>(out var mySr))
-        {
-            sr.sprite = mySr.sprite;
-            sr.material = mySr.sharedMaterial;
+            sr.sprite = bSr.sprite;
+            sr.material = bSr.sharedMaterial;
         }
         sr.color = new Color(1f, 0.12f, 0.12f, 0.38f);
         sr.sortingOrder = 4;
@@ -808,20 +478,11 @@ public class EnemyController : MonoBehaviour, IDamageable
     void FireBullet(GameObject prefab, float speed, Vector3? customDirection = null, Vector3? spawnOffset = null)
     {
         if (prefab == null) return;
-
         Vector3 dir = customDirection ?? Vector3.down;
-        Vector3 spawnPos = transform.position + (spawnOffset ?? Vector3.zero);
+        float angle = (dir.sqrMagnitude > 0.001f) ? Mathf.Atan2(dir.y, dir.x) * Mathf.Rad2Deg + 90f : 0f;
 
-        Quaternion rot = Quaternion.identity;
-        if (dir.sqrMagnitude > 0.001f)
-        {
-            float angle = Mathf.Atan2(dir.y, dir.x) * Mathf.Rad2Deg + 90f;
-            rot = Quaternion.Euler(0f, 0f, angle);
-        }
-
-        GameObject obj = Instantiate(prefab, spawnPos, rot);
-        EnemyBullet eb = obj.GetComponent<EnemyBullet>();
-        if (eb != null)
+        GameObject obj = Instantiate(prefab, transform.position + (spawnOffset ?? Vector3.zero), Quaternion.Euler(0f, 0f, angle));
+        if (obj.TryGetComponent<EnemyBullet>(out var eb))
         {
             eb.speed = speed;
             eb.direction = dir;
@@ -829,40 +490,41 @@ public class EnemyController : MonoBehaviour, IDamageable
         }
     }
 
-    void OnDestroy()
+    private void ReserveRowPosition(Dictionary<int, List<float>> rowDict, float baseY)
     {
-        if (activeTelegraph != null)
+        int targetRow = 0;
+        while (true)
         {
-            Destroy(activeTelegraph);
-            activeTelegraph = null;
+            if (!rowDict.ContainsKey(targetRow)) rowDict[targetRow] = new List<float>();
+            if (rowDict[targetRow].Count < MAX_ENEMIES_PER_ROW) break;
+            targetRow++;
         }
 
-        // Libera su lugar en el campo de batalla para que otros enemigos puedan usarlo,
-        // sin importar si murió por una bala, terminó la partida, o se cambió de escena.
-        if (hasReservedPosition)
-        {
-            if (tier == EnemyTier.Tier1 && reservedTier1Rows.ContainsKey(myRowIndex))
-            {
-                reservedTier1Rows[myRowIndex].Remove(myReservedX);
-            }
-            else if (tier == EnemyTier.Tier2 && reservedTier2Rows.ContainsKey(myRowIndex))
-            {
-                reservedTier2Rows[myRowIndex].Remove(myReservedX);
-            }
-            else if (tier == EnemyTier.Tier4 && reservedTier4Rows.ContainsKey(myRowIndex))
-            {
-                reservedTier4Rows[myRowIndex].Remove(myReservedX);
-            }
-        }
+        myRowIndex = targetRow;
+        myAssignedSettleY = baseY - (myRowIndex * rowVerticalSpacing);
+        settleY = myAssignedSettleY;
 
-        if (tier == EnemyTier.Tier3)
+        if (!hasReservedPosition)
         {
-            activeTier3Count = Mathf.Max(0, activeTier3Count - 1);
+            myReservedX = PickNonOverlappingX(rowDict[myRowIndex]);
+            hasReservedPosition = true;
+            rowDict[myRowIndex].Add(myReservedX);
         }
     }
 
-    // Llamado por WaveController al arrancar la Oleada 1, por si quedó algo residual
-    // de una partida anterior en la misma sesión de Play.
+    void OnDestroy()
+    {
+        if (activeTelegraph != null) Destroy(activeTelegraph);
+
+        if (hasReservedPosition)
+        {
+            if (tier == EnemyTier.Tier1 && reservedTier1Rows.ContainsKey(myRowIndex)) reservedTier1Rows[myRowIndex].Remove(myReservedX);
+            else if (tier == EnemyTier.Tier2 && reservedTier2Rows.ContainsKey(myRowIndex)) reservedTier2Rows[myRowIndex].Remove(myReservedX);
+            else if (tier == EnemyTier.Tier4 && reservedTier4Rows.ContainsKey(myRowIndex)) reservedTier4Rows[myRowIndex].Remove(myReservedX);
+        }
+        if (tier == EnemyTier.Tier3) activeTier3Count = Mathf.Max(0, activeTier3Count - 1);
+    }
+
     public static void ClearReservedPositions()
     {
         reservedTier1Rows.Clear();
@@ -871,59 +533,36 @@ public class EnemyController : MonoBehaviour, IDamageable
         activeTier3Count = 0;
     }
 
-    private bool isDead = false;
-
-    public void TakeDamage(int amount)
-    {
-        TakeDamage((float)amount);
-    }
+    public void TakeDamage(int amount) => TakeDamage((float)amount);
 
     public void TakeDamage(float amount)
     {
         if (Time.timeScale == 0f || isDead) return;
-
         currentHealth -= amount;
         if (currentHealth <= 0.001f) Die();
     }
 
-    public bool IsDead()
+    public void DoubleHealth()
     {
-        return isDead || currentHealth <= 0.001f;
+        maxHealth = Mathf.Max(1, Mathf.RoundToInt(maxHealth * 1.9f));
+        currentHealth *= 1.9f;
     }
+
+    public bool IsDead() => isDead || currentHealth <= 0.001f;
 
     void Die()
     {
         if (isDead) return;
         isDead = true;
-        if (SoundController.Instance != null)
-        {
-            SoundController.Instance.PlayEnemyDeathSfx();
-        }
 
-        if (givesScore && GameManager.Instance != null)
-        {
-            GameManager.Instance.AddScore(scoreValue);
-        }
+        SoundController.Instance?.PlayEnemyDeathSfx();
+        if (givesScore) GameManager.Instance?.AddScore(scoreValue);
+        WaveController.Instance?.OnEnemyDestroyed();
 
-        if (WaveController.Instance != null)
-        {
-            WaveController.Instance.OnEnemyDestroyed();
-        }
-
-        Material mat = null;
-        if (TryGetComponent<SpriteRenderer>(out var sr))
-        {
-            mat = sr.sharedMaterial;
-        }
+        Material mat = TryGetComponent<SpriteRenderer>(out var sr) ? sr.sharedMaterial : null;
         EnemyExplosion.Spawn(transform.position, tier, transform.localScale, mat, explosionSprite);
-
         Destroy(gameObject);
     }
 
-    // Llamado por WaveController cuando se acaba el tiempo de la oleada:
-    // el enemigo sigue vivo pero deja de dar puntos si lo matan después.
-    public void DisableScoring()
-    {
-        givesScore = false;
-    }
+    public void DisableScoring() => givesScore = false;
 }

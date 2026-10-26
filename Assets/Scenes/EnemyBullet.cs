@@ -2,7 +2,7 @@ using UnityEngine;
 
 public class EnemyBullet : MonoBehaviour
 {
-    public float speed = 300f;
+    public float speed = 345f; // +15% velocidad base (300 * 1.15)
     public int damage = 1;
     public Vector3 direction = Vector3.down;
     public float lifeTime = 5f;
