@@ -82,6 +82,22 @@ public class EnemyController : MonoBehaviour, IDamageable
 
     public float bigBulletSpawnOffset = 180f;
 
+    // Animaciones mecánicas por Tier (flotación de propulsores, inclinación al moverse, carga y retroceso rígido)
+    private Vector3 baseScale = Vector3.one;
+    private float animPhaseOffset = 0f;
+    private float prevPosX = 0f;
+    private float bankAmount = 0f;
+    private float recoilTimer = 0f;
+    private float recoilStrength = 1f;
+    private float prevHoverY = 0f;
+    private float prevRecoilY = 0f;
+    private bool hasSettledPos = false;
+    private bool isRepositioning = false;
+    private float chargeVisualProgress = 0f;
+    private SpriteRenderer vfxCoreGlowSr;
+    private Transform vfxCoreVortexTr;
+    private SpriteRenderer vfxCoreVortexSr;
+
     public float GetScreenTopY(float extraPadding = 50f)
     {
         if (mainCam == null) mainCam = Camera.main;
@@ -117,9 +133,9 @@ public class EnemyController : MonoBehaviour, IDamageable
         {
             aimsAtPlayer = Random.value < tier1AimChance;
             if (Mathf.Approximately(fireCadence, 1.275f) || Mathf.Approximately(fireCadence, 1.02f) || Mathf.Approximately(fireCadence, 1f) || Mathf.Approximately(fireCadence, 2.17f))
-                fireCadence = 2.50f; // -15% velocidad de generación (2.17s * 1.15)
+                fireCadence = 2.875f; // -15% adicional de generación de balas (2.50s * 1.15)
             else
-                fireCadence *= 1.15f;
+                fireCadence *= 1.3225f; // -15% acumulado dos veces (1.15 * 1.15)
 
             if (Mathf.Approximately(tier1BulletSpeed, 240f) || Mathf.Approximately(tier1BulletSpeed, 168f))
                 tier1BulletSpeed = 276f; // +15% velocidad bala (240 * 1.15)
@@ -128,21 +144,21 @@ public class EnemyController : MonoBehaviour, IDamageable
         {
             tier2AimsAtPlayer = Random.value < tier2AimChance;
             if (Mathf.Approximately(fireCadence, 1f))
-                fireCadence = 1.15f; // -15% velocidad de generación (1.0s * 1.15)
+                fireCadence = 1.3225f; // -15% adicional de generación (1.15s * 1.15)
             else
-                fireCadence *= 1.15f;
+                fireCadence *= 1.3225f;
         }
         else if (tier == EnemyTier.Tier3)
         {
             tier3AimsAtPlayer = Random.value < tier3AimChance;
             if (Mathf.Approximately(fireCadence, 1f))
-                fireCadence = 1.15f; // -15% velocidad de generación (1.0s * 1.15)
+                fireCadence = 1.3225f; // -15% adicional de generación (1.15s * 1.15)
             else
-                fireCadence *= 1.15f;
+                fireCadence *= 1.3225f;
         }
         else if (tier == EnemyTier.Tier4)
         {
-            laserCooldown *= 1.15f; // -15% frecuencia de disparo del láser
+            laserCooldown *= 1.3225f; // -15% adicional en la frecuencia de disparo del láser
             bool isBossFight = (GameManager.Instance != null && GameManager.Instance.IsInBossFight);
             float baseTier4Y = isBossFight ? 1380f : 1150f;
 
@@ -166,7 +182,140 @@ public class EnemyController : MonoBehaviour, IDamageable
         var pc = FindAnyObjectByType<PlayerController>();
         if (pc != null) playerTransform = pc.transform;
 
+        InitEnemyAnimation();
         StartCoroutine(EnterAndBehave());
+    }
+
+    void Update()
+    {
+        if (Time.timeScale == 0f || isDead) return;
+        UpdateEnemyAnimation();
+    }
+
+    private void InitEnemyAnimation()
+    {
+        baseScale = transform.localScale;
+        animPhaseOffset = Random.Range(0f, Mathf.PI * 2f);
+        prevPosX = transform.position.x;
+
+        SpriteRenderer rootSr = GetComponent<SpriteRenderer>();
+        int baseOrder = rootSr != null ? rootSr.sortingOrder : 0;
+        Material sharedMat = rootSr != null ? rootSr.sharedMaterial : null;
+
+        GameObject glowObj = new GameObject("Vfx_CoreGlow");
+        glowObj.transform.SetParent(transform, false);
+        glowObj.transform.localPosition = tier == EnemyTier.Tier3 || tier == EnemyTier.Tier4
+            ? Vector3.zero
+            : new Vector3(0f, 0.25f, 0f);
+        glowObj.transform.localScale = new Vector3(0.95f, 0.95f, 1f);
+        vfxCoreGlowSr = glowObj.AddComponent<SpriteRenderer>();
+        vfxCoreGlowSr.sprite = ChargeVisualUtils.GetGlowCircleSprite();
+        if (sharedMat != null) vfxCoreGlowSr.sharedMaterial = sharedMat;
+        vfxCoreGlowSr.sortingOrder = baseOrder - 1;
+
+        if (tier == EnemyTier.Tier3 || tier == EnemyTier.Tier4)
+        {
+            GameObject vortexObj = new GameObject("Vfx_ChargeVortex");
+            vortexObj.transform.SetParent(transform, false);
+            vortexObj.transform.localPosition = Vector3.zero;
+            vortexObj.transform.localScale = new Vector3(1.15f, 1.15f, 1f);
+            vfxCoreVortexSr = vortexObj.AddComponent<SpriteRenderer>();
+            vfxCoreVortexSr.sprite = ChargeVisualUtils.GetEnergyVortexSprite();
+            if (sharedMat != null) vfxCoreVortexSr.sharedMaterial = sharedMat;
+            vfxCoreVortexSr.sortingOrder = baseOrder + 1;
+            vfxCoreVortexTr = vortexObj.transform;
+            vfxCoreVortexSr.color = new Color(1f, 0.4f, 0.2f, 0f);
+        }
+    }
+
+    private void TriggerRecoil(float strength = 1f)
+    {
+        recoilTimer = 0.14f;
+        recoilStrength = Mathf.Max(0.5f, strength);
+    }
+
+    private void UpdateEnemyAnimation()
+    {
+        float dt = Time.deltaTime;
+        float velX = dt > 0.0001f ? (transform.position.x - prevPosX) / dt : 0f;
+        prevPosX = transform.position.x;
+
+        float normInputX = Mathf.Clamp(velX / 240f, -1f, 1f);
+        float maxBankDeg = tier switch
+        {
+            EnemyTier.Tier1 => 13f,
+            EnemyTier.Tier2 => 10.5f,
+            EnemyTier.Tier3 => 9f,
+            _ => 6f
+        };
+        float foreshorten = tier == EnemyTier.Tier3 ? 0.09f : 0.08f;
+        ChargeVisualUtils.EvalShipBank(ref bankAmount, normInputX, dt, maxBankDeg, foreshorten, out _, out float rollX);
+
+        float t = Time.time + animPhaseOffset;
+
+        float hoverFreq = tier switch { EnemyTier.Tier1 => 2.3f, EnemyTier.Tier2 => 2.0f, EnemyTier.Tier3 => 1.55f, _ => 1.75f };
+        float hoverAmp = tier switch { EnemyTier.Tier1 => 8f, EnemyTier.Tier2 => 6.5f, EnemyTier.Tier3 => 5.5f, _ => 6f };
+
+        float recoilKickY = 0f;
+        if (recoilTimer > 0f)
+        {
+            recoilTimer = Mathf.Max(0f, recoilTimer - dt);
+            float kickCurve = Mathf.Sin((recoilTimer / 0.14f) * Mathf.PI);
+            recoilKickY = 16f * recoilStrength * kickCurve;
+        }
+
+        if (hasSettledPos && !isRepositioning)
+        {
+            float hoverY = Mathf.Sin(t * hoverFreq) * hoverAmp;
+            float deltaY = (hoverY - prevHoverY) + (recoilKickY - prevRecoilY);
+            prevHoverY = hoverY;
+            prevRecoilY = recoilKickY;
+            if (Mathf.Abs(deltaY) > 0.0001f)
+            {
+                transform.position += new Vector3(0f, deltaY, 0f);
+            }
+        }
+        else
+        {
+            prevHoverY = 0f;
+            prevRecoilY = 0f;
+        }
+
+        // Mantener el casco siempre orientado verticalmente hacia abajo (sin giros diagonales al disparar recto)
+        transform.localRotation = Quaternion.identity;
+        transform.localScale = new Vector3(baseScale.x * rollX, baseScale.y, baseScale.z);
+
+        UpdateEnemyVfx(t, dt);
+    }
+
+    private void UpdateEnemyVfx(float t, float dt)
+    {
+        if (vfxCoreGlowSr != null)
+        {
+            float pulse = 0.85f + 0.15f * Mathf.Sin(t * 9f);
+            Color baseGlow = tier switch
+            {
+                EnemyTier.Tier1 => new Color(0.35f, 0.92f, 0.65f, 0.42f * pulse),
+                EnemyTier.Tier2 => new Color(0.45f, 0.78f, 1f, 0.48f * pulse),
+                EnemyTier.Tier3 => Color.Lerp(new Color(1f, 0.48f, 0.18f, 0.36f * pulse), new Color(1f, 0.85f, 0.28f, 0.92f), chargeVisualProgress),
+                _ => Color.Lerp(new Color(1f, 0.25f, 0.25f, 0.34f * pulse), new Color(1f, 0.72f, 0.22f, 0.95f), chargeVisualProgress)
+            };
+            vfxCoreGlowSr.color = baseGlow;
+            float gs = Mathf.Lerp(0.95f, 1.55f, chargeVisualProgress) * (0.94f + 0.10f * Mathf.Sin(t * 10f));
+            vfxCoreGlowSr.transform.localScale = new Vector3(gs, gs, 1f);
+        }
+
+        if (vfxCoreVortexTr != null && vfxCoreVortexSr != null)
+        {
+            float spin = Mathf.Lerp(55f, 320f, chargeVisualProgress);
+            vfxCoreVortexTr.Rotate(0f, 0f, spin * dt);
+            float vs = Mathf.Lerp(0.85f, 1.45f, chargeVisualProgress);
+            vfxCoreVortexTr.localScale = new Vector3(vs, vs, 1f);
+            Color vc = tier == EnemyTier.Tier3
+                ? new Color(1f, 0.62f, 0.20f, Mathf.Lerp(0f, 0.85f, chargeVisualProgress))
+                : new Color(1f, 0.28f, 0.22f, Mathf.Lerp(0f, 0.90f, chargeVisualProgress));
+            vfxCoreVortexSr.color = vc;
+        }
     }
 
     void LateUpdate()
@@ -211,7 +360,10 @@ public class EnemyController : MonoBehaviour, IDamageable
         if (!hasEnteredScreen)
         {
             if (pos.x >= minScreenX && pos.x <= maxScreenX && pos.y >= minScreenY && pos.y <= maxScreenY)
+            {
                 hasEnteredScreen = true;
+                SoundController.Instance?.PlayEnemyEntrySfx(tier);
+            }
         }
 
         if (hasEnteredScreen)
@@ -263,6 +415,7 @@ public class EnemyController : MonoBehaviour, IDamageable
         }
 
         transform.position = new Vector3(transform.position.x, targetSettleY, transform.position.z);
+        hasSettledPos = true;
 
         if (tier == EnemyTier.Tier1)
         {
@@ -331,6 +484,7 @@ public class EnemyController : MonoBehaviour, IDamageable
         {
             yield return new WaitForSeconds(fireCadence);
             FireBullet(bulletPrefab, tier1BulletSpeed, GetAimDirection(aimsAtPlayer));
+            TriggerRecoil(0.65f);
         }
     }
 
@@ -340,8 +494,10 @@ public class EnemyController : MonoBehaviour, IDamageable
         {
             yield return new WaitForSeconds(fireCadence);
             FireBullet(bulletPrefab, 460f, GetAimDirection(tier2AimsAtPlayer));
-            yield return new WaitForSeconds(0.575f);
+            TriggerRecoil(0.75f);
+            yield return new WaitForSeconds(0.66125f); // -15% adicional de velocidad de generación (0.575s * 1.15)
             FireBullet(bulletPrefab, 460f, GetAimDirection(tier2AimsAtPlayer));
+            TriggerRecoil(0.75f);
         }
     }
 
@@ -353,11 +509,23 @@ public class EnemyController : MonoBehaviour, IDamageable
             for (int i = 0; i < 3; i++)
             {
                 FireBullet(bulletPrefab, 460f, GetAimDirection(tier3AimsAtPlayer));
-                yield return new WaitForSeconds(0.575f);
+                TriggerRecoil(0.7f);
+                yield return new WaitForSeconds(0.66125f); // -15% adicional de velocidad de generación (0.575s * 1.15)
             }
-            yield return new WaitForSeconds(1.725f);
+
+            float chargeElapsed = 0f;
+            const float bigOrbWindup = 1.98375f; // -15% adicional de velocidad de generación (1.725s * 1.15)
+            while (chargeElapsed < bigOrbWindup)
+            {
+                chargeElapsed += Time.deltaTime;
+                chargeVisualProgress = Mathf.Clamp01(chargeElapsed / bigOrbWindup);
+                yield return null;
+            }
+            chargeVisualProgress = 0f;
+
             Vector3 dir = GetAimDirection(true);
             FireBullet(bigBulletPrefab, tier3BigBulletSpeed, dir, dir * bigBulletSpawnOffset);
+            TriggerRecoil(1.25f);
         }
     }
 
@@ -380,10 +548,12 @@ public class EnemyController : MonoBehaviour, IDamageable
             while (elapsed < laserTelegraphDuration)
             {
                 elapsed += Time.deltaTime;
+                chargeVisualProgress = Mathf.Clamp01(elapsed / Mathf.Max(0.01f, laserTelegraphDuration));
                 if (activeTelegraph != null) activeTelegraph.transform.position = transform.position + dir * (laserBeamLength * 0.5f);
                 yield return null;
             }
 
+            chargeVisualProgress = 0f;
             if (activeTelegraph != null) { Destroy(activeTelegraph); activeTelegraph = null; }
 
             Vector3 finalBeamCenter = transform.position + dir * (laserBeamLength * 0.5f);
@@ -392,9 +562,12 @@ public class EnemyController : MonoBehaviour, IDamageable
                 GameObject realLaser = Instantiate(laserPrefab, finalBeamCenter, rot);
                 realLaser.transform.localScale = new Vector3(laserBeamWidth, laserBeamLength, 1f);
                 SoundController.Instance?.PlayTier4LaserSfx();
+                TriggerRecoil(1.4f);
             }
 
-            yield return new WaitForSeconds(Mathf.Max(0.1f, laserCooldown - laserTelegraphDuration));
+            yield return new WaitForSeconds(0.18f);
+
+            yield return new WaitForSeconds(Mathf.Max(0.1f, laserCooldown - laserTelegraphDuration - 0.18f));
         }
     }
 
@@ -412,6 +585,7 @@ public class EnemyController : MonoBehaviour, IDamageable
 
     IEnumerator RepositionToTarget()
     {
+        isRepositioning = true;
         Vector3 target = new Vector3(myReservedX, myAssignedSettleY, 0f);
         while (Vector3.Distance(transform.position, target) > 5f)
         {
@@ -419,6 +593,7 @@ public class EnemyController : MonoBehaviour, IDamageable
             yield return null;
         }
         transform.position = target;
+        isRepositioning = false;
     }
 
     float PickNonOverlappingX(List<float> reservedPositions)
@@ -539,7 +714,12 @@ public class EnemyController : MonoBehaviour, IDamageable
     {
         if (Time.timeScale == 0f || isDead) return;
         currentHealth -= amount;
-        if (currentHealth <= 0.001f) Die();
+        if (currentHealth <= 0.001f)
+        {
+            Die();
+            return;
+        }
+        SpriteHitFlash.TriggerOn(gameObject);
     }
 
     public void DoubleHealth()
@@ -560,7 +740,7 @@ public class EnemyController : MonoBehaviour, IDamageable
         WaveController.Instance?.OnEnemyDestroyed();
 
         Material mat = TryGetComponent<SpriteRenderer>(out var sr) ? sr.sharedMaterial : null;
-        EnemyExplosion.Spawn(transform.position, tier, transform.localScale, mat, explosionSprite);
+        EnemyExplosion.Spawn(transform.position, tier, baseScale, mat, explosionSprite);
         Destroy(gameObject);
     }
 

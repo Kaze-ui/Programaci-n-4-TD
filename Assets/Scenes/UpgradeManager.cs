@@ -1,5 +1,6 @@
 using UnityEngine;
 using UnityEngine.UI;
+using UnityEngine.EventSystems;
 using TMPro;
 using System;
 
@@ -39,9 +40,6 @@ public class UpgradeManager : MonoBehaviour
     [SerializeField] private int baseCost = 25;
     [SerializeField] private int costIncreasePerLevel = 20;
 
-    [Header("Temporizador de Pantalla de Mejoras")]
-    public float maxWaitTime = 20f;
-    private float countdownTimer = 20f;
     private bool hasContinued = false;
 
     [Header("Referencias")]
@@ -54,6 +52,21 @@ public class UpgradeManager : MonoBehaviour
     private TextMeshProUGUI damageTitleText;
     private TextMeshProUGUI healthTitleText;
     private TextMeshProUGUI speedTitleText;
+
+    // Medidor de audio compartido para activar el botón Continuar
+    private readonly MicrophoneScreamMeterSession screamSession = new MicrophoneScreamMeterSession();
+    private bool screamUnlocked = false;
+    private bool wasCoopOnOpen = false;
+    private RectTransform continueRect;
+    private TextMeshProUGUI continueText;
+    private RectTransform screamFillRect;
+    private Image screamFillImg;
+    private Image[] continueBorderEdges;
+    private RectTransform micFillRect;
+    private Image micFillImg;
+    private RectTransform micThresholdRect;
+    private TextMeshProUGUI micPromptTmp;
+    private TextMeshProUGUI micDeviceTmp;
 
     private static Sprite s_CardBgSprite;
     private static Sprite s_DamageDefaultIcon;
@@ -68,9 +81,23 @@ public class UpgradeManager : MonoBehaviour
     void OnEnable()
     {
         transform.SetAsLastSibling();
-        countdownTimer = maxWaitTime;
         hasContinued = false;
+        screamUnlocked = false;
+        wasCoopOnOpen = GameManager.Instance != null && GameManager.Instance.IsPlayer2Joined;
+
+        if (continueButton != null)
+        {
+            continueButton.interactable = false;
+        }
+        if (continueRect != null)
+        {
+            continueRect.anchoredPosition = new Vector2(0f, -262f);
+        }
+
+        screamSession.Begin();
+        ScreamMeterUIUtils.UpdateThresholdMarker(micThresholdRect, wasCoopOnOpen);
         RefreshUI();
+        RefreshScreamGateUI();
 
         if (SoundController.Instance != null)
         {
@@ -78,18 +105,42 @@ public class UpgradeManager : MonoBehaviour
         }
     }
 
+    void OnDisable()
+    {
+        screamSession.Stop();
+        if (continueRect != null) continueRect.anchoredPosition = new Vector2(0f, -262f);
+    }
+
+    void OnDestroy()
+    {
+        screamSession.Stop();
+    }
+
     void Update()
     {
         if (hasContinued) return;
 
-        // Se usa Time.unscaledDeltaTime porque Time.timeScale se encuentra en 0f durante el panel de mejoras
-        countdownTimer -= Time.unscaledDeltaTime;
+        float rawDt = Time.unscaledDeltaTime;
+        screamSession.Step(Mathf.Min(0.05f, rawDt), wasCoopOnOpen, true);
 
-        if (countdownTimer <= 0f)
+        if (!screamUnlocked && screamSession.IsComplete)
         {
-            countdownTimer = 0f;
-            TriggerContinue();
+            screamUnlocked = true;
+            if (continueButton != null)
+            {
+                continueButton.interactable = true;
+                if (EventSystem.current != null)
+                {
+                    EventSystem.current.SetSelectedGameObject(continueButton.gameObject);
+                }
+            }
+            if (SoundController.Instance != null)
+            {
+                SoundController.Instance.PlayUpgradeContinueSfx();
+            }
         }
+
+        RefreshScreamGateUI();
     }
 
     void Start()
@@ -97,7 +148,7 @@ public class UpgradeManager : MonoBehaviour
         if (damageButton != null) damageButton.onClick.AddListener(PurchaseDamage);
         if (speedButton != null) speedButton.onClick.AddListener(PurchaseSpeed);
         if (healthButton != null) healthButton.onClick.AddListener(PurchaseHealth);
-        if (continueButton != null) continueButton.onClick.AddListener(TriggerContinue);
+        if (continueButton != null) continueButton.onClick.AddListener(HandleContinueButtonClicked);
     }
 
     private void SetupLayoutAndCards()
@@ -138,32 +189,186 @@ public class UpgradeManager : MonoBehaviour
             new Color(0.25f, 0.75f, 1f, 1f),
             out speedArtImage, out speedTitleText);
 
-        // 5. Configurar botón de Continuar abajo en el centro
-        if (continueButton != null)
+        // 5. Reemplazar el botón simple de Continuar por un medidor de audio integrado que lo activa al 100%
+        SetupScreamContinueGate();
+    }
+
+    private void SetupScreamContinueGate()
+    {
+        TMP_FontAsset sharedFont = null;
+        if (damageCostText != null) sharedFont = damageCostText.font;
+        else
         {
-            RectTransform contRt = continueButton.GetComponent<RectTransform>();
-            contRt.anchorMin = new Vector2(0.5f, 0.5f);
-            contRt.anchorMax = new Vector2(0.5f, 0.5f);
-            contRt.pivot = new Vector2(0.5f, 0.5f);
-            contRt.anchoredPosition = new Vector2(0f, -250f);
-            contRt.sizeDelta = new Vector2(250f, 50f);
+            TextMeshProUGUI anyTmp = FindAnyObjectByType<TextMeshProUGUI>();
+            if (anyTmp != null) sharedFont = anyTmp.font;
+        }
 
-            Image contImg = continueButton.GetComponent<Image>();
-            if (contImg != null)
+        if (continueButton == null)
+        {
+            GameObject btnObj = new GameObject("ContinueButton", typeof(RectTransform), typeof(Image), typeof(Button));
+            btnObj.transform.SetParent(transform, false);
+            continueButton = btnObj.GetComponent<Button>();
+        }
+
+        continueRect = continueButton.GetComponent<RectTransform>();
+        continueRect.anchorMin = new Vector2(0.5f, 0.5f);
+        continueRect.anchorMax = new Vector2(0.5f, 0.5f);
+        continueRect.pivot = new Vector2(0.5f, 0.5f);
+        continueRect.anchoredPosition = new Vector2(0f, -262f);
+        continueRect.sizeDelta = new Vector2(540f, 58f);
+
+        Image contImg = continueButton.GetComponent<Image>();
+        if (contImg != null)
+        {
+            contImg.sprite = null;
+            contImg.color = new Color(0.02f, 0.04f, 0.09f, 0.96f);
+        }
+
+        ColorBlock cb = continueButton.colors;
+        cb.normalColor = Color.white;
+        cb.highlightedColor = new Color(0.86f, 1f, 0.92f, 1f);
+        cb.pressedColor = new Color(0.68f, 0.90f, 0.78f, 1f);
+        cb.selectedColor = Color.white;
+        cb.disabledColor = Color.white;
+        cb.fadeDuration = 0.08f;
+        continueButton.colors = cb;
+        continueButton.interactable = false;
+
+        screamFillImg = ScreamMeterUIUtils.CreateBarFill(continueButton.transform, out screamFillRect);
+        screamFillImg.transform.SetAsFirstSibling();
+
+        for (int i = 1; i <= 3; i++)
+        {
+            GameObject tick = new GameObject("Tick_" + i, typeof(RectTransform), typeof(Image));
+            tick.transform.SetParent(continueButton.transform, false);
+            tick.transform.SetSiblingIndex(i);
+            RectTransform tRt = tick.GetComponent<RectTransform>();
+            float tx = i * 0.25f;
+            tRt.anchorMin = new Vector2(tx, 0f);
+            tRt.anchorMax = new Vector2(tx, 1f);
+            tRt.sizeDelta = new Vector2(2f, 0f);
+            Image tImg = tick.GetComponent<Image>();
+            tImg.color = new Color(0.02f, 0.04f, 0.08f, 0.7f);
+            tImg.raycastTarget = false;
+        }
+
+        continueBorderEdges = ScreamMeterUIUtils.CreateBorderFrame(continueButton.transform, new Color(0.28f, 0.65f, 0.92f, 0.85f), 2.5f);
+
+        continueText = continueButton.GetComponentInChildren<TextMeshProUGUI>();
+        if (continueText == null)
+        {
+            continueText = ScreamMeterUIUtils.CreateLabel(continueButton.transform, "Text", Vector2.zero, new Vector2(520f, 46f),
+                "", 20, TextAlignmentOptions.Center, sharedFont);
+        }
+        continueText.transform.SetAsLastSibling();
+        continueText.fontSize = 20;
+        continueText.fontStyle = FontStyles.Bold;
+        continueText.alignment = TextAlignmentOptions.Center;
+        continueText.color = Color.white;
+        continueText.raycastTarget = false;
+        RectTransform ctRt = continueText.GetComponent<RectTransform>();
+        ctRt.anchorMin = Vector2.zero;
+        ctRt.anchorMax = Vector2.one;
+        ctRt.offsetMin = Vector2.zero;
+        ctRt.offsetMax = Vector2.zero;
+
+        // Medidor en vivo de potencia del micrófono y dispositivo debajo del botón
+        ScreamMeterUIUtils.CreateLabel(transform, "UpgradeMicCaption", new Vector2(-135f, -306f), new Vector2(270f, 22f),
+            "<color=#94A3B8><b>NIVEL DEL MICRÓFONO</b></color>", 12, TextAlignmentOptions.MidlineLeft, sharedFont);
+        micPromptTmp = ScreamMeterUIUtils.CreateLabel(transform, "UpgradeMicPrompt", new Vector2(135f, -306f), new Vector2(270f, 22f),
+            "", 12, TextAlignmentOptions.MidlineRight, sharedFont);
+
+        GameObject micTrack = ScreamMeterUIUtils.CreateBarTrack(transform, "UpgradeMicMeter", new Vector2(0f, -328f), new Vector2(540f, 18f),
+            new Color(0.015f, 0.035f, 0.08f, 1f), new Color(0.45f, 0.65f, 0.85f, 0.65f), out micFillRect, out micFillImg, out _);
+
+        micThresholdRect = ScreamMeterUIUtils.CreateThresholdMarker(micTrack.transform);
+
+        micDeviceTmp = ScreamMeterUIUtils.CreateLabel(transform, "UpgradeMicDevice", new Vector2(0f, -352f), new Vector2(540f, 22f),
+            "", 12, TextAlignmentOptions.Center, sharedFont);
+    }
+
+    private void RefreshScreamGateUI()
+    {
+        if (screamFillRect != null)
+        {
+            screamFillRect.anchorMax = new Vector2(Mathf.Clamp01(screamSession.Progress), 1f);
+        }
+
+        if (screamFillImg != null)
+        {
+            screamFillImg.color = screamUnlocked
+                ? new Color(0.18f, 0.88f, 0.48f, 1f)
+                : ScreamMeterUIUtils.EvaluateProgressColor(screamSession.Progress);
+        }
+
+        if (continueText != null)
+        {
+            if (screamUnlocked)
             {
-                contImg.color = new Color(0.12f, 0.22f, 0.35f, 0.95f);
+                continueText.text = "¡ACTIVADO! TOCÁ PARA CONTINUAR ►";
+                continueText.color = Color.white;
             }
-
-            TextMeshProUGUI contText = continueButton.GetComponentInChildren<TextMeshProUGUI>();
-            if (contText != null)
+            else
             {
-                contText.text = "CONTINUAR";
-                contText.fontSize = 22;
-                contText.fontStyle = FontStyles.Bold;
-                contText.alignment = TextAlignmentOptions.Center;
-                contText.color = Color.white;
+                int pct = Mathf.RoundToInt(screamSession.Progress * 100f);
+                continueText.text = wasCoopOnOpen
+                    ? $"¡GRITEN PARA ACTIVAR CONTINUAR! ({pct}%)"
+                    : $"¡GRITÁ PARA ACTIVAR CONTINUAR! ({pct}%)";
+                continueText.color = new Color(0.95f, 0.98f, 1f, 0.96f);
             }
         }
+
+        if (continueBorderEdges != null)
+        {
+            Color borderCol;
+            if (screamUnlocked)
+            {
+                float pulse = 0.5f + 0.5f * Mathf.Sin(Time.unscaledTime * 7f);
+                borderCol = Color.Lerp(new Color(0.22f, 0.98f, 0.56f, 1f), new Color(0.65f, 1f, 0.82f, 1f), pulse);
+            }
+            else if (screamSession.IsBlowing)
+            {
+                borderCol = new Color(1f, 0.18f, 0.52f, 1f);
+            }
+            else if (screamSession.ValidScream)
+            {
+                borderCol = new Color(0.28f, 0.98f, 0.64f, 1f);
+            }
+            else
+            {
+                borderCol = new Color(0.28f, 0.65f, 0.92f, 0.85f);
+            }
+
+            for (int i = 0; i < continueBorderEdges.Length; i++)
+            {
+                if (continueBorderEdges[i] != null) continueBorderEdges[i].color = borderCol;
+            }
+        }
+
+        if (continueRect != null)
+        {
+            if (!screamUnlocked && screamSession.ValidScream)
+            {
+                float amp = Mathf.Lerp(1.2f, 4.2f, screamSession.SmoothedMicDisplay);
+                continueRect.anchoredPosition = new Vector2(
+                    Mathf.Sin(Time.unscaledTime * 68f) * amp,
+                    -262f + Mathf.Cos(Time.unscaledTime * 54f) * amp * 0.6f
+                );
+            }
+            else
+            {
+                continueRect.anchoredPosition = new Vector2(0f, -262f);
+            }
+        }
+
+        ScreamMeterUIUtils.ApplyMicStatusUI(
+            screamSession,
+            wasCoopOnOpen,
+            screamUnlocked,
+            micFillRect,
+            micFillImg,
+            micPromptTmp,
+            micDeviceTmp);
     }
 
     private void SetupCard(Button btn, TextMeshProUGUI costText, string title, Vector2 containerPos,
@@ -291,10 +496,18 @@ public class UpgradeManager : MonoBehaviour
         }
     }
 
+    private void HandleContinueButtonClicked()
+    {
+        if (!screamUnlocked) return;
+        TriggerContinue();
+    }
+
     private void TriggerContinue()
     {
         if (hasContinued) return;
         hasContinued = true;
+
+        screamSession.Stop();
 
         if (SoundController.Instance != null)
         {
@@ -449,43 +662,6 @@ public class UpgradeManager : MonoBehaviour
         if (damageArtImage != null && damageImage != null) damageArtImage.sprite = damageImage;
         if (healthArtImage != null && healthImage != null) healthArtImage.sprite = healthImage;
         if (speedArtImage != null && speedImage != null) speedArtImage.sprite = speedImage;
-    }
-
-    void OnGUI()
-    {
-        // Contador visual arcade en la parte superior central de la pantalla
-        int secondsLeft = Mathf.CeilToInt(countdownTimer);
-        string timerStr = $"Siguiente oleada en: {secondsLeft}s";
-
-        float width = 360f;
-        float height = 46f;
-        float x = (Screen.width - width) * 0.5f;
-        float y = 30f;
-
-        Texture2D bgTex = Texture2D.whiteTexture;
-        Color prevColor = GUI.color;
-
-        // Fondo oscuro semitransparente
-        GUI.color = new Color(0.04f, 0.08f, 0.16f, 0.90f);
-        GUI.DrawTexture(new Rect(x, y, width, height), bgTex);
-
-        // Borde estilizado (azul neón normal, rojo brillante cuando faltan 5 segundos o menos)
-        Color borderColor = (secondsLeft <= 5) ? new Color(1f, 0.22f, 0.22f, 0.95f) : new Color(0.2f, 0.75f, 1f, 0.85f);
-        GUI.color = borderColor;
-        GUI.DrawTexture(new Rect(x, y, width, 2), bgTex);
-        GUI.DrawTexture(new Rect(x, y + height - 2, width, 2), bgTex);
-        GUI.DrawTexture(new Rect(x, y, 2, height), bgTex);
-        GUI.DrawTexture(new Rect(x + width - 2, y, 2, height), bgTex);
-
-        GUI.color = prevColor;
-
-        GUIStyle labelStyle = new GUIStyle(GUI.skin.label);
-        labelStyle.alignment = TextAnchor.MiddleCenter;
-        labelStyle.fontSize = 20;
-        labelStyle.fontStyle = FontStyle.Bold;
-        labelStyle.normal.textColor = (secondsLeft <= 5) ? new Color(1f, 0.35f, 0.35f) : new Color(1f, 0.88f, 0.25f);
-
-        GUI.Label(new Rect(x, y, width, height), timerStr, labelStyle);
     }
 
     // --- GENERADORES PROCEDURALES DE TEXTURAS PARA TARJETAS ---

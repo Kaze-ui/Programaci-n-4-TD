@@ -36,10 +36,18 @@ public class SoundController : MonoBehaviour
     [SerializeField] private AudioSource musicSource;
     [SerializeField] private AudioSource sfxSource;
     [SerializeField] private AudioSource chargeSource;
+    private AudioSource entryAudioSource;
 
     [Header("Música Temática")]
     public AudioClip menuMusic;
     public AudioClip gameMusic;
+    public AudioClip freneticGameMusic;
+    public AudioClip bossMusic;
+    public AudioClip tutorialMusic;
+
+    [Header("Entradas por Tier")]
+    public AudioClip[] tierEntryClips = new AudioClip[4];
+    public AudioClip bossEntrySfx;
 
     [Header("Clips de Efectos")]
     public AudioClip shootSfx;
@@ -63,6 +71,20 @@ public class SoundController : MonoBehaviour
     private float sfxVolume = 1.0f;
     private float musicVolume = 1.0f;
     private Coroutine musicFadeCoroutine;
+    private AudioClip pendingMusicClip;
+    private AudioLowPassFilter musicLowPass;
+    private bool isMusicMuffled = false;
+    private float currentMuffleCutoff = 22000f;
+    private const float MuffledCutoffHz = 560f;
+    private const float ClearCutoffHz = 22000f;
+    private AudioClip generatedMenuMusic;
+    private AudioClip generatedGameMusic;
+    private AudioClip generatedFreneticGameMusic;
+    private AudioClip generatedBossMusic;
+    private AudioClip generatedTutorialMusic;
+    private readonly AudioClip[] generatedTierEntryClips = new AudioClip[4];
+    private AudioClip generatedBossEntryClip;
+    private readonly float[] lastTierEntryTime = { -10f, -10f, -10f, -10f };
     private float lastPlayerDeathTime = -10f;
 
     void Awake()
@@ -85,21 +107,75 @@ public class SoundController : MonoBehaviour
 
     void OnDestroy()
     {
+        if (generatedMenuMusic != null)
+        {
+            Destroy(generatedMenuMusic);
+            generatedMenuMusic = null;
+        }
+        if (generatedGameMusic != null)
+        {
+            Destroy(generatedGameMusic);
+            generatedGameMusic = null;
+        }
+        if (generatedFreneticGameMusic != null)
+        {
+            Destroy(generatedFreneticGameMusic);
+            generatedFreneticGameMusic = null;
+        }
+        if (generatedBossMusic != null)
+        {
+            Destroy(generatedBossMusic);
+            generatedBossMusic = null;
+        }
+        if (generatedTutorialMusic != null)
+        {
+            Destroy(generatedTutorialMusic);
+            generatedTutorialMusic = null;
+        }
+        for (int i = 0; i < generatedTierEntryClips.Length; i++)
+        {
+            if (generatedTierEntryClips[i] != null)
+            {
+                Destroy(generatedTierEntryClips[i]);
+                generatedTierEntryClips[i] = null;
+            }
+        }
+        if (generatedBossEntryClip != null)
+        {
+            Destroy(generatedBossEntryClip);
+            generatedBossEntryClip = null;
+        }
         if (_instance == this) _instance = null;
     }
 
     void Start() => PlayMusicForCurrentScene();
 
-    private void OnSceneLoaded(Scene scene, LoadSceneMode mode) => PlayMusicForCurrentScene();
+    private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
+    {
+        SetMusicMuffled(false);
+        PlayMusicForCurrentScene();
+    }
 
     private void InitAudioSources()
     {
         if (musicSource == null)
         {
-            musicSource = gameObject.AddComponent<AudioSource>();
+            Transform existingChannel = transform.Find("MusicChannel");
+            GameObject musicObj = existingChannel != null ? existingChannel.gameObject : new GameObject("MusicChannel");
+            musicObj.transform.SetParent(transform, false);
+            musicSource = musicObj.GetComponent<AudioSource>() ?? musicObj.AddComponent<AudioSource>();
             musicSource.playOnAwake = false;
             musicSource.loop = true;
             musicSource.spatialBlend = 0f;
+        }
+
+        if (musicLowPass == null && musicSource != null)
+        {
+            musicLowPass = musicSource.GetComponent<AudioLowPassFilter>() ?? musicSource.gameObject.AddComponent<AudioLowPassFilter>();
+            musicLowPass.cutoffFrequency = ClearCutoffHz;
+            musicLowPass.lowpassResonanceQ = 1.3f;
+            musicLowPass.enabled = false;
+            currentMuffleCutoff = ClearCutoffHz;
         }
 
         if (sfxSource == null)
@@ -115,12 +191,19 @@ public class SoundController : MonoBehaviour
             chargeSource.playOnAwake = false;
             chargeSource.loop = true;
         }
+
+        if (entryAudioSource == null)
+        {
+            entryAudioSource = gameObject.AddComponent<AudioSource>();
+            entryAudioSource.playOnAwake = false;
+            entryAudioSource.loop = false;
+            entryAudioSource.spatialBlend = 0f;
+        }
     }
 
     private void PreloadClips()
     {
-        if (menuMusic == null) menuMusic = Resources.Load<AudioClip>("Audio/music_menu");
-        if (gameMusic == null) gameMusic = Resources.Load<AudioClip>("Audio/music_game");
+        if (generatedMenuMusic == null) generatedMenuMusic = CreateMenuMusicClip();
     }
 
     // ==========================================
@@ -142,15 +225,94 @@ public class SoundController : MonoBehaviour
 
     public void PlayMenuMusic(bool fade = true)
     {
-        if (menuMusic == null) menuMusic = Resources.Load<AudioClip>("Audio/music_menu");
+        SetMusicMuffled(false);
+        if (menuMusic == null)
+        {
+            if (generatedMenuMusic == null) generatedMenuMusic = CreateMenuMusicClip();
+            menuMusic = generatedMenuMusic;
+        }
         SwitchMusicTrack(menuMusic, fade, 0.75f);
+    }
+
+    public void PlayTutorialMusic(bool fade = true)
+    {
+        SetMusicMuffled(false);
+        if (tutorialMusic == null)
+        {
+            tutorialMusic = Resources.Load<AudioClip>("Audio/music_tutorial");
+        }
+        if (tutorialMusic == null)
+        {
+            if (generatedTutorialMusic == null)
+            {
+                generatedTutorialMusic = CreateTutorialMusicClip();
+            }
+            tutorialMusic = generatedTutorialMusic;
+        }
+        SwitchMusicTrack(tutorialMusic, fade, 0.72f);
     }
 
     public void PlayGameMusic(bool fade = true)
     {
         if (gameMusic == null || gameMusic.loadState == AudioDataLoadState.Unloaded)
-            gameMusic = Resources.Load<AudioClip>("Audio/music_game");
-        SwitchMusicTrack(gameMusic, fade, 0.75f);
+        {
+            if (generatedGameMusic == null) generatedGameMusic = CreateGameMusicClip();
+            gameMusic = generatedGameMusic;
+        }
+        SwitchMusicTrack(gameMusic, fade, 0.72f);
+    }
+
+    public void PlayFreneticGameMusic(bool fade = true)
+    {
+        if (freneticGameMusic == null || freneticGameMusic.loadState == AudioDataLoadState.Unloaded)
+        {
+            if (generatedFreneticGameMusic == null) generatedFreneticGameMusic = CreateWave3FreneticMusicClip();
+            freneticGameMusic = generatedFreneticGameMusic;
+        }
+        SwitchMusicTrack(freneticGameMusic, fade, 0.75f);
+    }
+
+    public void PlayBossMusic(bool fade = true)
+    {
+        SetMusicMuffled(false);
+        if (bossMusic == null || bossMusic.loadState == AudioDataLoadState.Unloaded)
+        {
+            if (generatedBossMusic == null) generatedBossMusic = CreateBossMusicClip();
+            bossMusic = generatedBossMusic;
+        }
+        SwitchMusicTrack(bossMusic, fade, 0.80f);
+    }
+
+    public void SetMusicMuffled(bool muffled)
+    {
+        isMusicMuffled = muffled;
+        if (musicLowPass != null && muffled)
+        {
+            musicLowPass.enabled = true;
+            musicLowPass.lowpassResonanceQ = 1.3f;
+        }
+    }
+
+    void Update()
+    {
+        if (musicLowPass == null) return;
+
+        float targetHz = isMusicMuffled ? MuffledCutoffHz : ClearCutoffHz;
+        if (!isMusicMuffled && Mathf.Abs(currentMuffleCutoff - ClearCutoffHz) < 600f)
+        {
+            currentMuffleCutoff = ClearCutoffHz;
+            musicLowPass.cutoffFrequency = ClearCutoffHz;
+            if (musicLowPass.enabled) musicLowPass.enabled = false;
+            return;
+        }
+
+        if (!musicLowPass.enabled) musicLowPass.enabled = true;
+        float speed = isMusicMuffled ? 11f : 9f;
+        float blend = 1f - Mathf.Exp(-speed * Time.unscaledDeltaTime);
+        float logCur = Mathf.Log(Mathf.Max(80f, currentMuffleCutoff));
+        float logDst = Mathf.Log(targetHz);
+        currentMuffleCutoff = Mathf.Exp(Mathf.Lerp(logCur, logDst, blend));
+        musicLowPass.cutoffFrequency = currentMuffleCutoff;
     }
 
     public void PlayMusic(AudioClip clip, bool loop = true)
@@ -161,16 +323,26 @@ public class SoundController : MonoBehaviour
     private void SwitchMusicTrack(AudioClip newClip, bool fade, float targetVolumeFactor = 1f)
     {
         if (musicSource == null) InitAudioSources();
-        if (newClip == null || (musicSource.clip == newClip && musicSource.isPlaying)) return;
+        if (newClip == null) return;
 
-        if (musicFadeCoroutine != null) StopCoroutine(musicFadeCoroutine);
+        bool alreadyPlayingTarget = musicFadeCoroutine == null && musicSource.clip == newClip && musicSource.isPlaying;
+        bool alreadyFadingToTarget = musicFadeCoroutine != null && pendingMusicClip == newClip;
+        if (alreadyPlayingTarget || alreadyFadingToTarget) return;
+
+        if (musicFadeCoroutine != null)
+        {
+            StopCoroutine(musicFadeCoroutine);
+            musicFadeCoroutine = null;
+        }
 
         if (fade && musicSource.isPlaying && gameObject.activeInHierarchy)
         {
+            pendingMusicClip = newClip;
             musicFadeCoroutine = StartCoroutine(CrossfadeMusicRoutine(newClip, targetVolumeFactor));
         }
         else
         {
+            pendingMusicClip = null;
             musicSource.clip = newClip;
             musicSource.loop = true;
             musicSource.volume = musicVolume * targetVolumeFactor;
@@ -194,6 +366,7 @@ public class SoundController : MonoBehaviour
         musicSource.Stop();
         musicSource.clip = newClip;
         musicSource.loop = true;
+        musicSource.volume = 0f;
         musicSource.Play();
 
         float fadeInTime = 0.6f;
@@ -209,10 +382,13 @@ public class SoundController : MonoBehaviour
 
         musicSource.volume = targetVol;
         musicFadeCoroutine = null;
+        pendingMusicClip = null;
     }
 
     public void StopMusic(bool fade = false)
     {
+        SetMusicMuffled(false);
+        pendingMusicClip = null;
         if (musicFadeCoroutine != null)
         {
             StopCoroutine(musicFadeCoroutine);
@@ -232,6 +408,22 @@ public class SoundController : MonoBehaviour
         }
     }
 
+    public void PauseMusic()
+    {
+        if (musicSource != null && musicSource.isPlaying)
+        {
+            musicSource.Pause();
+        }
+    }
+
+    public void ResumeMusic()
+    {
+        if (musicSource != null && musicSource.clip != null && !musicSource.isPlaying)
+        {
+            musicSource.UnPause();
+        }
+    }
+
     private IEnumerator FadeOutAndStopRoutine(float fadeDuration)
     {
         float startVol = musicSource.volume;
@@ -245,6 +437,1288 @@ public class SoundController : MonoBehaviour
         musicSource.Stop();
         musicSource.clip = null;
         musicFadeCoroutine = null;
+    }
+
+    // ==========================================
+    // MÚSICA AMBIENTAL PARA EL MODO TUTORIAL
+    // ==========================================
+
+    private static float MidiToHz(int midi) => 440f * Mathf.Pow(2f, (midi - 69) / 12f);
+
+    /// <summary>
+    /// Genera en memoria un bucle ambiental cálido y relajado (8 compases, sin percusión agresiva)
+    /// para la pantalla de entrenamiento del Tutorial.
+    /// </summary>
+    private static AudioClip CreateTutorialMusicClip()
+    {
+        const int sampleRate = 44100;
+        const float bpm = 84f;
+        float beatDur = 60f / bpm;
+        float barDur = beatDur * 4f;
+        const int barCount = 8;
+        int totalSamples = Mathf.RoundToInt(barDur * barCount * sampleRate);
+
+        float[] dryL = new float[totalSamples];
+        float[] dryR = new float[totalSamples];
+        float[] delayFeedL = new float[totalSamples];
+        float[] delayFeedR = new float[totalSamples];
+
+        int[][] padChords =
+        {
+            new[] { 53, 60, 64, 67 },
+            new[] { 55, 62, 64, 71 },
+            new[] { 52, 59, 62, 67 },
+            new[] { 57, 60, 64, 71 },
+            new[] { 53, 60, 64, 69 },
+            new[] { 50, 57, 60, 64 },
+            new[] { 48, 55, 59, 64 },
+            new[] { 55, 60, 62, 69 }
+        };
+
+        int[] bassRoots = { 41, 43, 40, 45, 41, 38, 48, 43 };
+
+        int[][] arpPatterns =
+        {
+            new[] { 69, 72, 76, 79, 76, 72, 69, -1 },
+            new[] { 71, 74, 76, 79, 76, 74, 71, -1 },
+            new[] { 67, 71, 74, 79, 76, 74, 71, -1 },
+            new[] { 69, 72, 76, 79, 83, 79, 76, -1 },
+            new[] { 69, 72, 76, 72, 77, 76, 72, -1 },
+            new[] { 69, 72, 74, 76, 74, 72, 69, -1 },
+            new[] { 67, 72, 76, 79, 76, 72, 71, -1 },
+            new[] { 67, 72, 74, 79, 74, 71, 69, -1 }
+        };
+
+        float eighthDur = beatDur * 0.5f;
+        for (int bar = 0; bar < barCount; bar++)
+        {
+            float barStartTime = bar * barDur;
+            AddTutorialPadChord(dryL, dryR, sampleRate, totalSamples, barStartTime, barDur, padChords[bar]);
+
+            AddTutorialBassNote(dryL, dryR, sampleRate, totalSamples, barStartTime, beatDur * 1.85f, bassRoots[bar]);
+            AddTutorialBassNote(dryL, dryR, sampleRate, totalSamples, barStartTime + beatDur * 2f, beatDur * 1.85f, bassRoots[bar]);
+
+            int[] arp = arpPatterns[bar];
+            for (int step = 0; step < arp.Length; step++)
+            {
+                if (arp[step] < 0) continue;
+                float pan = (step % 2 == 0) ? 0.36f : 0.64f;
+                AddTutorialPluckNote(dryL, dryR, delayFeedL, delayFeedR, sampleRate, totalSamples,
+                    barStartTime + step * eighthDur, arp[step], pan);
+            }
+        }
+
+        return FinalizeStereoLoopClip("music_tutorial", dryL, dryR, delayFeedL, delayFeedR, sampleRate, totalSamples, beatDur, 0.85f);
+    }
+
+    private static AudioClip FinalizeStereoLoopClip(
+        string clipName, float[] dryL, float[] dryR, float[] feedL, float[] feedR,
+        int sampleRate, int totalSamples, float beatDur, float masterGain)
+    {
+        int tap1Offset = Mathf.RoundToInt(beatDur * 0.5f * sampleRate);
+        int tap2Offset = Mathf.RoundToInt(beatDur * 1.0f * sampleRate);
+        int tap3Offset = Mathf.RoundToInt(beatDur * 1.5f * sampleRate);
+
+        float[] stereoData = new float[totalSamples * 2];
+        for (int i = 0; i < totalSamples; i++)
+        {
+            int t1 = (i - tap1Offset + totalSamples) % totalSamples;
+            int t2 = (i - tap2Offset + totalSamples) % totalSamples;
+            int t3 = (i - tap3Offset + totalSamples) % totalSamples;
+
+            float wetL = feedR[t1] * 0.40f + feedL[t2] * 0.22f + feedR[t3] * 0.12f;
+            float wetR = feedL[t1] * 0.40f + feedR[t2] * 0.22f + feedL[t3] * 0.12f;
+
+            float outL = (dryL[i] + wetL) * masterGain;
+            float outR = (dryR[i] + wetR) * masterGain;
+
+            stereoData[i * 2] = Mathf.Clamp(outL / (1f + Mathf.Abs(outL) * 0.35f), -0.92f, 0.92f);
+            stereoData[i * 2 + 1] = Mathf.Clamp(outR / (1f + Mathf.Abs(outR) * 0.35f), -0.92f, 0.92f);
+        }
+
+        AudioClip clip = AudioClip.Create(clipName, totalSamples, 2, sampleRate, false);
+        clip.SetData(stereoData, 0);
+        return clip;
+    }
+
+    // ==========================================
+    // NUEVA MÚSICA DE MENÚ ("ASTRAL HORIZON" - NOIR CÓSMICO)
+    // ==========================================
+
+    private static AudioClip CreateMenuMusicClip()
+    {
+        const int sampleRate = 44100;
+        const float bpm = 92f;
+        float beatDur = 60f / bpm;
+        float barDur = beatDur * 4f;
+        const int barCount = 8;
+        int totalSamples = Mathf.RoundToInt(barDur * barCount * sampleRate);
+
+        float[] dryL = new float[totalSamples];
+        float[] dryR = new float[totalSamples];
+        float[] feedL = new float[totalSamples];
+        float[] feedR = new float[totalSamples];
+
+        // Progresión atmosférica oscura con extensiones 9/#11 y cambios mediantes cromáticos
+        int[][] padChords =
+        {
+            new[] { 52, 59, 64, 66, 71 }, // Em9
+            new[] { 48, 55, 60, 64, 66 }, // Cmaj7#11
+            new[] { 45, 52, 57, 60, 64 }, // Am9
+            new[] { 47, 54, 57, 60, 66 }, // B7b9/sus
+            new[] { 52, 59, 63, 66, 71 }, // Em(maj9)
+            new[] { 47, 55, 62, 66, 71 }, // Gmaj7/B
+            new[] { 50, 57, 62, 66, 69 }, // D6/9
+            new[] { 48, 55, 59, 62, 67 }  // Cmaj9 -> B tensión
+        };
+
+        int[] bassRoots = { 40, 36, 33, 35, 40, 35, 38, 36 };
+        int[] bassAlt   = { 47, 43, 40, 42, 47, 42, 45, 35 };
+
+        int[][] chimeMotifs =
+        {
+            new[] { 76, -1, 79, -1, 78, -1, 71, 74, -1, 76, -1, -1 },
+            new[] { 74, -1, 78, -1, 79, -1, 76, -1, 71, -1, 72, -1 },
+            new[] { 76, -1, 83, -1, 81, -1, 76, 79, -1, 72, -1, -1 },
+            new[] { 74, -1, 76, -1, 78, -1, 75, -1, 71, -1, -1, -1 },
+            new[] { 76, -1, 83, -1, 86, -1, 83, -1, 79, 78, -1, -1 },
+            new[] { 79, -1, 83, -1, 81, -1, 78, -1, 74, -1, -1, -1 },
+            new[] { 76, -1, 78, -1, 81, -1, 79, -1, 74, -1, 76, -1 },
+            new[] { 79, -1, 78, -1, 75, -1, 76, -1, 71, -1, -1, -1 }
+        };
+
+        float stepDur = barDur / 12f; // Polirritmia ternaria 3-sobre-4 sobre el pulso binario
+        for (int bar = 0; bar < barCount; bar++)
+        {
+            float barStart = bar * barDur;
+            AddMenuAnalogPad(dryL, dryR, sampleRate, totalSamples, barStart, barDur, padChords[bar]);
+
+            AddMenuSubBass(dryL, dryR, sampleRate, totalSamples, barStart, beatDur * 1.45f, bassRoots[bar]);
+            AddMenuSubBass(dryL, dryR, sampleRate, totalSamples, barStart + beatDur * 1.5f, beatDur * 1.15f, bassRoots[bar] + 12);
+            AddMenuSubBass(dryL, dryR, sampleRate, totalSamples, barStart + beatDur * 2.75f, beatDur * 1.15f, bassAlt[bar]);
+
+            AddMusicKick(dryL, dryR, sampleRate, totalSamples, barStart, 95f, 40f, 0.24f, 0.14f);
+            AddMusicKick(dryL, dryR, sampleRate, totalSamples, barStart + beatDur * 2.5f, 92f, 40f, 0.22f, 0.11f);
+            AddMenuSoftAirBrush(feedL, feedR, sampleRate, totalSamples, barStart + beatDur * 2f, 0.22f);
+
+            int[] motif = chimeMotifs[bar];
+            for (int s = 0; s < motif.Length; s++)
+            {
+                if (motif[s] < 0) continue;
+                float pan = 0.28f + 0.44f * ((s % 3) * 0.5f);
+                AddMenuCrystalChime(dryL, dryR, feedL, feedR, sampleRate, totalSamples, barStart + s * stepDur, motif[s], pan);
+            }
+        }
+
+        return FinalizeStereoLoopClip("music_menu_v2", dryL, dryR, feedL, feedR, sampleRate, totalSamples, beatDur, 0.88f);
+    }
+
+    // ==========================================
+    // NUEVA MÚSICA IN-GAME ("HYPERION VOID" - CYBER COMBAT)
+    // ==========================================
+
+    private static AudioClip CreateGameMusicClip()
+    {
+        // F# Menor / Frigio Dominante: oscuridad cinética y tensión constante sin progresiones cliché
+        int[] bassProgression =
+        {
+            42, 42, 38, 40, 42, 42, 43, 41, // Sección A (F#, F#, D, E, F#, F#, G, F)
+            42, 38, 35, 37, 42, 43, 40, 37  // Sección B (F#, D, B, C#, F#, G, E, C#)
+        };
+
+        int[][] powerChords =
+        {
+            new[] { 54, 61, 66 }, // F#5
+            new[] { 54, 61, 67 }, // F#(b9)
+            new[] { 50, 57, 62 }, // Dmaj
+            new[] { 52, 59, 64 }, // Em
+            new[] { 54, 61, 66 }, // F#5
+            new[] { 54, 61, 66 }, // F#5
+            new[] { 55, 62, 67 }, // Gm5
+            new[] { 53, 60, 65 }, // Fm/C#7 tension
+            new[] { 54, 61, 69 }, // F#m
+            new[] { 50, 57, 66 }, // Dmaj7
+            new[] { 47, 54, 62 }, // Bm
+            new[] { 49, 56, 61 }, // C#5
+            new[] { 54, 61, 66 }, // F#5
+            new[] { 55, 62, 69 }, // Gmaj7/9
+            new[] { 52, 59, 67 }, // Em
+            new[] { 49, 55, 61 }  // C#b5 grit
+        };
+
+        int[][] sectionAArps =
+        {
+            new[] { 66, 73, 78, 73, 67, 73, 78, 73 },
+            new[] { 66, 73, 79, 73, 66, 73, 76, 73 },
+            new[] { 62, 69, 74, 69, 64, 69, 76, 69 },
+            new[] { 64, 71, 76, 71, 67, 71, 76, 71 },
+            new[] { 66, 73, 78, 73, 69, 73, 81, 73 },
+            new[] { 66, 73, 78, 79, 78, 73, 67, 73 },
+            new[] { 67, 74, 79, 74, 67, 74, 81, 74 },
+            new[] { 65, 72, 77, 79, 77, 72, 73, 77 }
+        };
+
+        // Melodía principal épica oscura (Sección B: compases 8..15, pasos en corcheas)
+        int[][] sectionBLead =
+        {
+            new[] { 78, -1, 79, 81, -1, 78, 76, -1 },
+            new[] { 74, -1, 78, -1, 81, 79, 78, 76 },
+            new[] { 74, -1, 71, -1, 73, 74, 76, -1 },
+            new[] { 73, -1, 77, -1, 79, -1, 81, -1 },
+            new[] { 85, -1, 83, 81, -1, 79, 81, -1 },
+            new[] { 79, -1, 78, 74, -1, 79, 78, 74 },
+            new[] { 76, -1, 79, -1, 78, 76, 74, 71 },
+            new[] { 73, -1, 77, 79, 81, -1, 85, -1 }
+        };
+
+        return CreateDynamicCombatTrackClip("music_game_v2", 134f, bassProgression, powerChords, sectionAArps, sectionBLead, false, 1.0f);
+    }
+
+    // ==========================================
+    // MÚSICA FRENÉTICA DESDE OLEADA 3 ("OVERDRIVE")
+    // ==========================================
+    private static AudioClip CreateWave3FreneticMusicClip()
+    {
+        // A Menor / Frigio acelerado a 160 BPM con doble bombo sincopado y arpegios rápidos
+        int[] bassProgression =
+        {
+            45, 45, 43, 41, 45, 48, 46, 44, // A, A, G, F, A, C, Bb, G#
+            45, 41, 38, 40, 45, 46, 43, 44  // A, F, D, E, A, Bb, G, G#
+        };
+
+        int[][] powerChords =
+        {
+            new[] { 57, 64, 69 }, // Am
+            new[] { 57, 64, 70 }, // A(b9)
+            new[] { 55, 62, 67 }, // G5
+            new[] { 53, 60, 65 }, // F5
+            new[] { 57, 64, 72 }, // Am
+            new[] { 60, 67, 72 }, // C5
+            new[] { 58, 65, 70 }, // Bb5
+            new[] { 56, 63, 68 }, // G#5
+            new[] { 57, 64, 69 }, // Am
+            new[] { 53, 60, 69 }, // Fmaj7
+            new[] { 50, 57, 65 }, // Dm
+            new[] { 52, 59, 68 }, // E7
+            new[] { 57, 64, 72 }, // Am
+            new[] { 58, 65, 74 }, // Bbmaj7
+            new[] { 55, 62, 70 }, // Gm
+            new[] { 52, 59, 68 }  // E7 tension
+        };
+
+        int[][] sectionAArps =
+        {
+            new[] { 69, 76, 81, 84, 81, 76, 82, 76 },
+            new[] { 69, 76, 82, 81, 79, 76, 81, 76 },
+            new[] { 67, 74, 79, 83, 79, 74, 81, 74 },
+            new[] { 65, 72, 77, 81, 77, 72, 79, 72 },
+            new[] { 69, 76, 81, 84, 86, 84, 81, 76 },
+            new[] { 72, 79, 84, 88, 84, 79, 82, 79 },
+            new[] { 70, 77, 82, 86, 82, 77, 81, 77 },
+            new[] { 68, 74, 80, 83, 86, 83, 80, 74 }
+        };
+
+        int[][] sectionBLead =
+        {
+            new[] { 81, 84, 86, -1, 84, 81, 82, 81 },
+            new[] { 77, 81, 84, -1, 86, 84, 82, 81 },
+            new[] { 77, 81, 86, -1, 84, 81, 79, 77 },
+            new[] { 76, 80, 83, 88, -1, 86, 84, 83 },
+            new[] { 88, -1, 86, 84, 86, 88, 89, -1 },
+            new[] { 86, 84, 82, 81, 82, 86, 84, 81 },
+            new[] { 82, 84, 86, -1, 84, 82, 79, 77 },
+            new[] { 76, 80, 83, 86, 88, -1, 93, -1 }
+        };
+
+        return CreateDynamicCombatTrackClip("music_game_wave3_frenetic", 160f, bassProgression, powerChords, sectionAArps, sectionBLead, true, 1.15f);
+    }
+
+    // ==========================================
+    // MÚSICA ÚNICA DE JEFE FINAL ("LEVIATHAN CATACLYSM" - ORQUESTAL / METAL CÓSMICO / CORO / ÓRGANO)
+    // ==========================================
+    private static AudioClip CreateBossMusicClip()
+    {
+        const int sampleRate = 44100;
+        const float bpm = 132f;
+        float beatDur = 60f / bpm;
+        float barDur = beatDur * 4f;
+        const int barCount = 16;
+        int totalSamples = Mathf.RoundToInt(barDur * barCount * sampleRate);
+
+        float[] dryL = new float[totalSamples];
+        float[] dryR = new float[totalSamples];
+        float[] feedL = new float[totalSamples];
+        float[] feedR = new float[totalSamples];
+
+        // C Menor / Frigio / Armónica (100% distinta al synth-acid de las oleadas):
+        // Cm -> Cm -> Db -> G7/B | Cm -> Ab -> Fm -> G7 | Cm -> Eb -> Ab -> G | Fm -> Cm -> F#dim -> G7
+        int[] rootNotes =
+        {
+            36, 36, 37, 35, // Bars 0-3: C2, C2, Db2, B1 (tensión frigia letal)
+            36, 32, 41, 43, // Bars 4-7: C2, Ab1, F2, G2
+            36, 39, 32, 43, // Bars 8-11: C2, Eb2, Ab1, G2 (clímax trágico-heroico)
+            41, 36, 42, 43  // Bars 12-15: F2, C2, F#2, G2
+        };
+
+        int[][] organChords =
+        {
+            new[] { 48, 55, 60, 63 },       // Cm
+            new[] { 48, 55, 60, 62 },       // Cm(add9)
+            new[] { 49, 56, 61, 65 },       // Db major oscuro
+            new[] { 47, 55, 59, 62 },       // G/B
+            new[] { 48, 55, 60, 63 },       // Cm
+            new[] { 44, 51, 56, 60 },       // Ab
+            new[] { 41, 48, 53, 56 },       // Fm
+            new[] { 43, 50, 55, 59 },       // G7
+            new[] { 48, 55, 60, 63 },       // Cm
+            new[] { 51, 58, 63, 67 },       // Eb
+            new[] { 44, 51, 56, 63 },       // Abmaj7
+            new[] { 43, 50, 55, 59 },       // G
+            new[] { 41, 48, 53, 60 },       // Fm7
+            new[] { 48, 55, 60, 63 },       // Cm
+            new[] { 42, 48, 54, 60 },       // F#dim7 apocalíptico
+            new[] { 43, 50, 56, 59 }        // G7b9
+        };
+
+        // Ostinato de cuerdas spiccato en Sección A (corcheas tensas)
+        int[][] spiccatoStrings =
+        {
+            new[] { 60, 67, 68, 67, 63, 67, 72, 67 },
+            new[] { 60, 67, 68, 67, 62, 67, 71, 67 },
+            new[] { 61, 68, 69, 68, 65, 68, 73, 68 },
+            new[] { 59, 67, 68, 67, 62, 67, 74, 71 },
+            new[] { 60, 67, 72, 67, 63, 67, 75, 67 },
+            new[] { 56, 63, 68, 63, 60, 63, 68, 63 },
+            new[] { 65, 72, 75, 72, 68, 72, 77, 72 },
+            new[] { 67, 71, 74, 77, 79, 77, 74, 71 }
+        };
+
+        // Melodía épica final en Sección B (guitarra solista + metal espacial, compases 8..15)
+        int[][] sectionBHeroLead =
+        {
+            new[] { 72, -1, 75, 79, -1, 77, 75, 74 },
+            new[] { 75, -1, 79, 82, -1, 79, 75, 74 },
+            new[] { 72, -1, 75, 80, -1, 79, 77, 75 },
+            new[] { 74, -1, 77, 79, -1, 74, 71, -1 },
+            new[] { 77, -1, 80, 84, -1, 83, 80, 77 },
+            new[] { 79, -1, 75, 84, -1, 82, 79, 75 },
+            new[] { 78, -1, 81, 84, -1, 81, 78, 75 },
+            new[] { 79, -1, 83, 86, 88, -1, 83, -1 }
+        };
+
+        float sixteenthDur = beatDur * 0.25f;
+        float eighthDur = beatDur * 0.5f;
+
+        for (int bar = 0; bar < barCount; bar++)
+        {
+            float barStart = bar * barDur;
+            int root = rootNotes[bar];
+            int[] chord = organChords[bar];
+
+            // 1. Percusión bélica orquestal + doble bombo galopante (sin patrón disco 4x4)
+            float[] taikoBeats = { 0f, 0.75f, 1.0f, 2.0f, 2.5f, 2.75f, 3.0f, 3.5f };
+            for (int k = 0; k < taikoBeats.Length; k++)
+            {
+                bool heavy = (k == 0 || k == 3 || k == 6);
+                AddBossWarTaiko(dryL, dryR, feedL, feedR, sampleRate, totalSamples,
+                    barStart + taikoBeats[k] * beatDur, heavy ? 0.28f : 0.19f, heavy);
+            }
+
+            // Caja metálica militar pesada en tiempos 2 y 4 + redoble cinematográfico cada 4 compases
+            AddBossMetalSnare(dryL, dryR, feedL, feedR, sampleRate, totalSamples, barStart + beatDur * 1f, 0.20f);
+            AddBossMetalSnare(dryL, dryR, feedL, feedR, sampleRate, totalSamples, barStart + beatDur * 3f, 0.22f);
+            if (bar % 4 == 3)
+            {
+                for (int f = 0; f < 4; f++)
+                {
+                    AddBossWarTaiko(dryL, dryR, feedL, feedR, sampleRate, totalSamples,
+                        barStart + (3.25f + f * 0.1875f) * beatDur, 0.16f + f * 0.03f, false);
+                }
+            }
+
+            // Yunque / gong espacial metálico al inicio de cada frase de 4 compases
+            if (bar % 4 == 0)
+            {
+                AddBossAnvilCrash(dryL, dryR, feedL, feedR, sampleRate, totalSamples, barStart, bar == 8 ? 0.16f : 0.13f);
+            }
+
+            // 2. Órgano de catedral + Metales graves (Cathedral Pipe Organ + Dark Low Brass)
+            AddBossCathedralOrganBrass(dryL, dryR, feedL, feedR, sampleRate, totalSamples,
+                barStart, barDur, chord, bar >= 8 ? 0.088f : 0.072f);
+
+            // 3. Coro abisal con formantes vocales ("Ooh / Aah") flotando en estéreo
+            bool openVowel = (bar >= 8) || (bar % 4 >= 2);
+            AddBossFormantChoir(dryL, dryR, feedL, feedR, sampleRate, totalSamples,
+                barStart, barDur, new[] { chord[0] + 12, chord[2] + 12 }, openVowel, bar >= 8 ? 0.074f : 0.058f);
+
+            // 4. Guitarra eléctrica pesada con distorsión en galope metal-espacial
+            int[] gallopPattern = { 1, 0, 1, 1, 1, 0, 1, 0, 1, 0, 1, 1, 1, 1, 1, 0 };
+            for (int step = 0; step < 16; step++)
+            {
+                if (gallopPattern[step] == 0) continue;
+                bool openChug = (step == 0 || step == 8 || step == 12);
+                int gNote = (step >= 14) ? root + 7 : root;
+                float gDur = openChug ? sixteenthDur * 1.45f : sixteenthDur * 0.85f;
+                AddBossOverdriveGuitar(dryL, dryR, sampleRate, totalSamples,
+                    barStart + step * sixteenthDur, gDur, gNote, openChug ? 0.13f : 0.095f, openChug);
+            }
+
+            // 5. Sección A: Cuerdas spiccato urgentes | Sección B: Solo épico guitarra + theremin espacial
+            if (bar < 8)
+            {
+                int[] staccato = spiccatoStrings[bar];
+                for (int s = 0; s < staccato.Length; s++)
+                {
+                    float pan = (s % 2 == 0) ? 0.28f : 0.72f;
+                    AddBossStringSpiccato(dryL, dryR, feedL, feedR, sampleRate, totalSamples,
+                        barStart + s * eighthDur, eighthDur * 0.92f, staccato[s], pan, 0.085f);
+                }
+            }
+            else
+            {
+                int[] lead = sectionBHeroLead[bar - 8];
+                for (int s = 0; s < lead.Length; s++)
+                {
+                    if (lead[s] < 0) continue;
+                    bool holdLong = (s + 1 < lead.Length && lead[s + 1] < 0);
+                    float noteDur = holdLong ? (eighthDur * 1.92f) : (eighthDur * 0.95f);
+                    AddBossSpaceHeroLead(dryL, dryR, feedL, feedR, sampleRate, totalSamples,
+                        barStart + s * eighthDur, noteDur, lead[s], 0.11f);
+                }
+            }
+        }
+
+        return FinalizeStereoLoopClip("music_boss_cataclysm", dryL, dryR, feedL, feedR, sampleRate, totalSamples, beatDur, 0.88f);
+    }
+
+    private static void AddBossWarTaiko(
+        float[] dryL, float[] dryR, float[] feedL, float[] feedR,
+        int sampleRate, int totalSamples, float startTime, float gain, bool heavy)
+    {
+        int startSample = Mathf.RoundToInt(startTime * sampleRate);
+        float duration = heavy ? 0.42f : 0.28f;
+        int count = Mathf.RoundToInt(duration * sampleRate);
+        float phase = 0f;
+        float overPhase = 0f;
+        const float twoPi = Mathf.PI * 2f;
+        float fStart = heavy ? 102f : 124f;
+        float fEnd = heavy ? 34f : 44f;
+
+        for (int i = 0; i < count; i++)
+        {
+            float t = i / (float)sampleRate;
+            float env = Mathf.Min(1f, t / 0.005f) * Mathf.Exp(-t * (heavy ? 6.8f : 10.5f));
+            float freq = fEnd + (fStart - fEnd) * Mathf.Exp(-t * 22f);
+            phase += twoPi * freq / sampleRate;
+            overPhase += twoPi * (freq * 1.62f) / sampleRate;
+
+            float skinThump = Mathf.Exp(-t * 85f) * DeterministicNoise(startSample + i) * 0.25f;
+            float body = Mathf.Sin(phase) * 0.85f + Mathf.Sin(overPhase) * 0.22f * Mathf.Exp(-t * 16f);
+            float raw = (body + skinThump) * env;
+            float val = (raw / (1f + Mathf.Abs(raw) * 0.45f)) * gain;
+
+            int idx = (startSample + i) % totalSamples;
+            dryL[idx] += val;
+            dryR[idx] += val;
+            feedL[idx] += val * 0.16f;
+            feedR[idx] += val * 0.16f;
+        }
+    }
+
+    private static void AddBossMetalSnare(
+        float[] dryL, float[] dryR, float[] feedL, float[] feedR,
+        int sampleRate, int totalSamples, float startTime, float gain)
+    {
+        int startSample = Mathf.RoundToInt(startTime * sampleRate);
+        int count = Mathf.RoundToInt(0.24f * sampleRate);
+        const float twoPi = Mathf.PI * 2f;
+        float phaseA = 0f, phaseB = 0f;
+
+        for (int i = 0; i < count; i++)
+        {
+            float t = i / (float)sampleRate;
+            float f = 175f + 90f * Mathf.Exp(-t * 45f);
+            phaseA += twoPi * f / sampleRate;
+            phaseB += twoPi * (f * 1.53f) / sampleRate;
+
+            float shell = (Mathf.Sin(phaseA) * 0.45f + Mathf.Sin(phaseB) * 0.25f) * Mathf.Exp(-t * 20f);
+            float wires = DeterministicNoise(startSample + i * 9) * Mathf.Exp(-t * 13f) * 0.72f;
+            float val = (shell + wires) * gain;
+
+            int idx = (startSample + i) % totalSamples;
+            dryL[idx] += val;
+            dryR[idx] += val;
+            feedL[idx] += val * 0.34f;
+            feedR[idx] += val * 0.34f;
+        }
+    }
+
+    private static void AddBossAnvilCrash(
+        float[] dryL, float[] dryR, float[] feedL, float[] feedR,
+        int sampleRate, int totalSamples, float startTime, float gain)
+    {
+        int startSample = Mathf.RoundToInt(startTime * sampleRate);
+        const float duration = 1.65f;
+        int count = Mathf.RoundToInt(duration * sampleRate);
+        const float twoPi = Mathf.PI * 2f;
+
+        float[] metalRatios = { 1.0f, 1.41f, 1.73f, 2.23f, 3.17f };
+        float lp = 0f;
+        for (int i = 0; i < count; i++)
+        {
+            float t = i / (float)sampleRate;
+            float bellEnv = Mathf.Min(1f, t / 0.004f) * Mathf.Exp(-t * 2.2f);
+            float washEnv = Mathf.Min(1f, t / 0.01f) * Mathf.Exp(-t * 2.8f);
+
+            float metallic = 0f;
+            for (int r = 0; r < metalRatios.Length; r++)
+            {
+                metallic += Mathf.Sin(twoPi * (196f * metalRatios[r]) * t) * (1f / (r + 1f));
+            }
+            float noise = DeterministicNoise(startSample + i * 5);
+            lp += (noise - lp) * 0.32f;
+            float cymbal = (noise - lp) * 0.75f * washEnv;
+
+            float valL = (metallic * 0.25f * bellEnv + cymbal) * gain * 0.94f;
+            float valR = (metallic * 0.25f * bellEnv + cymbal * 0.95f) * gain * 1.06f;
+            int idx = (startSample + i) % totalSamples;
+            dryL[idx] += valL;
+            dryR[idx] += valR;
+            feedL[idx] += valL * 0.45f;
+            feedR[idx] += valR * 0.45f;
+        }
+    }
+
+    private static void AddBossOverdriveGuitar(
+        float[] dryL, float[] dryR, int sampleRate, int totalSamples,
+        float startTime, float duration, int midiNote, float gain, bool openChug)
+    {
+        float freq = MidiToHz(midiNote);
+        float fifthFreq = freq * 1.4983f;
+        int startSample = Mathf.RoundToInt(startTime * sampleRate);
+        int count = Mathf.RoundToInt(duration * sampleRate);
+        float lpL = 0f, lpR = 0f;
+        float cabAlpha = Mathf.Clamp(2f * Mathf.PI * (openChug ? 2350f : 1450f) / sampleRate, 0.04f, 0.48f);
+
+        for (int i = 0; i < count; i++)
+        {
+            float t = i / (float)sampleRate;
+            float pick = Mathf.Min(1f, t / 0.004f);
+            float decay = openChug ? Mathf.Exp(-t * 5.2f) : Mathf.Exp(-t * 16.5f);
+            float tail = Mathf.Clamp01((duration - t) / 0.014f);
+            float env = pick * decay * tail;
+
+            // Cuerda fundamental + 5ta (power chord) + decaimiento armónico metálico
+            float s1 = (((t * freq * 0.997f) % 1f) * 2f - 1f) + 0.65f * (((t * fifthFreq * 0.997f) % 1f) * 2f - 1f);
+            float s2 = (((t * freq * 1.003f) % 1f) * 2f - 1f) + 0.65f * (((t * fifthFreq * 1.003f) % 1f) * 2f - 1f);
+            float click = DeterministicNoise(startSample + i * 13) * Mathf.Exp(-t * 140f) * 0.35f;
+
+            // Saturación tipo tubo + filtrado de gabinete de guitarra
+            float driveL = (s1 + click) * (openChug ? 3.2f : 2.6f);
+            float driveR = (s2 - click) * (openChug ? 3.2f : 2.6f);
+            driveL = driveL / (1f + Mathf.Abs(driveL));
+            driveR = driveR / (1f + Mathf.Abs(driveR));
+
+            lpL += (driveL - lpL) * cabAlpha;
+            lpR += (driveR - lpR) * cabAlpha;
+
+            int idx = (startSample + i) % totalSamples;
+            dryL[idx] += lpL * env * gain;
+            dryR[idx] += lpR * env * gain;
+        }
+    }
+
+    private static void AddBossCathedralOrganBrass(
+        float[] dryL, float[] dryR, float[] feedL, float[] feedR,
+        int sampleRate, int totalSamples, float startTime, float duration, int[] midiNotes, float gain)
+    {
+        int startSample = Mathf.RoundToInt(startTime * sampleRate);
+        int count = Mathf.RoundToInt(duration * sampleRate);
+        float[] freqs = new float[midiNotes.Length];
+        for (int n = 0; n < midiNotes.Length; n++) freqs[n] = MidiToHz(midiNotes[n]);
+
+        const float twoPi = Mathf.PI * 2f;
+        float lpL = 0f, lpR = 0f;
+
+        for (int i = 0; i < count; i++)
+        {
+            float t = i / (float)sampleRate;
+            float envIn = Mathf.Clamp01(t / 0.09f);
+            float envOut = Mathf.Clamp01((duration - t) / 0.10f);
+            float env = envIn * envOut;
+
+            // Golpe de brillo tipo metal/trompeta al atacar seguido de órgano profundo sostenido
+            float brassBite = 0.25f + 0.75f * Mathf.Exp(-t * 3.8f);
+            float sumL = 0f, sumR = 0f;
+            for (int n = 0; n < freqs.Length; n++)
+            {
+                float fL = freqs[n] * 0.9975f;
+                float fR = freqs[n] * 1.0025f;
+                float pL = twoPi * fL * t;
+                float pR = twoPi * fR * t;
+
+                sumL += Mathf.Sin(pL) + 0.55f * Mathf.Sin(2f * pL) + 0.35f * Mathf.Sin(3f * pL) * brassBite + 0.20f * Mathf.Sin(4f * pL) * brassBite;
+                sumR += Mathf.Sin(pR) + 0.55f * Mathf.Sin(2f * pR) + 0.35f * Mathf.Sin(3f * pR) * brassBite + 0.20f * Mathf.Sin(4f * pR) * brassBite;
+            }
+
+            lpL += (sumL - lpL) * 0.24f;
+            lpR += (sumR - lpR) * 0.24f;
+
+            float scale = env * gain * 0.38f;
+            int idx = (startSample + i) % totalSamples;
+            dryL[idx] += lpL * scale;
+            dryR[idx] += lpR * scale;
+            feedL[idx] += lpL * scale * 0.55f;
+            feedR[idx] += lpR * scale * 0.55f;
+        }
+    }
+
+    private static void AddBossFormantChoir(
+        float[] dryL, float[] dryR, float[] feedL, float[] feedR,
+        int sampleRate, int totalSamples, float startTime, float duration, int[] midiNotes, bool openAah, float gain)
+    {
+        int startSample = Mathf.RoundToInt(startTime * sampleRate);
+        int count = Mathf.RoundToInt(duration * sampleRate);
+        float[] freqs = new float[midiNotes.Length];
+        for (int n = 0; n < midiNotes.Length; n++) freqs[n] = MidiToHz(midiNotes[n]);
+
+        // Dos resonadores de formante vocal ("Aah" vs "Ooh")
+        float f1 = openAah ? 680f : 320f;
+        float f2 = openAah ? 1180f : 860f;
+        const float twoPi = Mathf.PI * 2f;
+
+        float bp1StateL = 0f, bp1PrevL = 0f, bp2StateL = 0f, bp2PrevL = 0f;
+        float bp1StateR = 0f, bp1PrevR = 0f, bp2StateR = 0f, bp2PrevR = 0f;
+        float k1 = Mathf.Clamp(2f * Mathf.PI * f1 / sampleRate, 0.01f, 0.45f);
+        float k2 = Mathf.Clamp(2f * Mathf.PI * f2 / sampleRate, 0.01f, 0.45f);
+
+        for (int i = 0; i < count; i++)
+        {
+            float t = i / (float)sampleRate;
+            float env = Mathf.Clamp01(t / 0.28f) * Mathf.Clamp01((duration - t) / 0.24f);
+            float vib = 1f + 0.0045f * Mathf.Sin(twoPi * 5.1f * t);
+
+            float glottalL = 0f, glottalR = 0f;
+            for (int n = 0; n < freqs.Length; n++)
+            {
+                float cL = ((t * freqs[n] * vib * 0.996f) % 1f) * 2f - 1f;
+                float cR = ((t * freqs[n] * vib * 1.004f) % 1f) * 2f - 1f;
+                glottalL += cL;
+                glottalR += cR;
+            }
+
+            // Filtrado paso-banda simple por formantes vocales
+            float hpL = glottalL - bp1PrevL * 0.96f; bp1PrevL = glottalL;
+            bp1StateL += (hpL - bp1StateL) * k1;
+            float hp2L = glottalL - bp2PrevL * 0.92f; bp2PrevL = glottalL;
+            bp2StateL += (hp2L - bp2StateL) * k2;
+
+            float hpR = glottalR - bp1PrevR * 0.96f; bp1PrevR = glottalR;
+            bp1StateR += (hpR - bp1StateR) * k1;
+            float hp2R = glottalR - bp2PrevR * 0.92f; bp2PrevR = glottalR;
+            bp2StateR += (hp2R - bp2StateR) * k2;
+
+            float vL = (bp1StateL * 0.72f + bp2StateL * 0.48f) * env * gain;
+            float vR = (bp1StateR * 0.72f + bp2StateR * 0.48f) * env * gain;
+            int idx = (startSample + i) % totalSamples;
+            dryL[idx] += vL * 0.65f;
+            dryR[idx] += vR * 0.65f;
+            feedL[idx] += vL * 0.75f;
+            feedR[idx] += vR * 0.75f;
+        }
+    }
+
+    private static void AddBossStringSpiccato(
+        float[] dryL, float[] dryR, float[] feedL, float[] feedR,
+        int sampleRate, int totalSamples, float startTime, float duration, int midiNote, float pan, float gain)
+    {
+        float freq = MidiToHz(midiNote);
+        int startSample = Mathf.RoundToInt(startTime * sampleRate);
+        int count = Mathf.RoundToInt(duration * sampleRate);
+        float gL = Mathf.Cos(pan * Mathf.PI * 0.5f);
+        float gR = Mathf.Sin(pan * Mathf.PI * 0.5f);
+        float lp = 0f;
+
+        for (int i = 0; i < count; i++)
+        {
+            float t = i / (float)sampleRate;
+            float bowAttack = Mathf.Clamp01(t / 0.016f);
+            float release = Mathf.Clamp01((duration - t) / 0.03f);
+            float env = bowAttack * release * Mathf.Exp(-t * 5.8f);
+
+            float ensemble = (((t * freq * 0.996f) % 1f) * 2f - 1f) * 0.5f
+                           + (((t * freq * 1.004f) % 1f) * 2f - 1f) * 0.5f;
+            float rosin = DeterministicNoise(startSample + i * 3) * Mathf.Exp(-t * 42f) * 0.22f;
+            lp += ((ensemble + rosin) - lp) * 0.26f;
+
+            float val = lp * env * gain;
+            int idx = (startSample + i) % totalSamples;
+            dryL[idx] += val * gL;
+            dryR[idx] += val * gR;
+            feedL[idx] += val * 0.48f * gL;
+            feedR[idx] += val * 0.48f * gR;
+        }
+    }
+
+    private static void AddBossSpaceHeroLead(
+        float[] dryL, float[] dryR, float[] feedL, float[] feedR,
+        int sampleRate, int totalSamples, float startTime, float duration, int midiNote, float gain)
+    {
+        float freq = MidiToHz(midiNote);
+        int startSample = Mathf.RoundToInt(startTime * sampleRate);
+        int count = Mathf.RoundToInt(duration * sampleRate);
+        const float twoPi = Mathf.PI * 2f;
+        float lpL = 0f, lpR = 0f;
+
+        for (int i = 0; i < count; i++)
+        {
+            float t = i / (float)sampleRate;
+            float env = Mathf.Clamp01(t / 0.018f) * Mathf.Clamp01((duration - t) / 0.055f);
+            float vib = 1f + 0.005f * Mathf.Sin(twoPi * 5.8f * t) * Mathf.Clamp01(t / 0.10f);
+            float f = freq * vib;
+
+            // Guitarra solista saturada + sobretono espacial cristalino a la octava
+            float rawL = (((t * f * 0.997f) % 1f) * 2f - 1f) * 1.6f;
+            float rawR = (((t * f * 1.003f) % 1f) * 2f - 1f) * 1.6f;
+            rawL = rawL / (1f + Mathf.Abs(rawL));
+            rawR = rawR / (1f + Mathf.Abs(rawR));
+
+            float spaceOvertone = Mathf.Sin(twoPi * (f * 2f) * t) * 0.24f * Mathf.Min(1f, t / 0.05f);
+            lpL += ((rawL + spaceOvertone) - lpL) * 0.30f;
+            lpR += ((rawR + spaceOvertone) - lpR) * 0.30f;
+
+            float vL = lpL * env * gain;
+            float vR = lpR * env * gain;
+            int idx = (startSample + i) % totalSamples;
+            dryL[idx] += vL * 0.85f;
+            dryR[idx] += vR * 0.85f;
+            feedL[idx] += vL * 0.65f;
+            feedR[idx] += vR * 0.65f;
+        }
+    }
+
+    private static AudioClip CreateDynamicCombatTrackClip(
+        string clipName,
+        float bpm,
+        int[] bassProgression,
+        int[][] powerChords,
+        int[][] sectionAArps,
+        int[][] sectionBLead,
+        bool freneticDrums,
+        float leadMixBoost)
+    {
+        const int sampleRate = 44100;
+        float beatDur = 60f / bpm;
+        float barDur = beatDur * 4f;
+        const int barCount = 16;
+        int totalSamples = Mathf.RoundToInt(barDur * barCount * sampleRate);
+
+        float[] dryL = new float[totalSamples];
+        float[] dryR = new float[totalSamples];
+        float[] feedL = new float[totalSamples];
+        float[] feedR = new float[totalSamples];
+
+        float sixteenthDur = beatDur * 0.25f;
+        float eighthDur = beatDur * 0.5f;
+
+        for (int bar = 0; bar < barCount; bar++)
+        {
+            float barStart = bar * barDur;
+            int root = bassProgression[bar];
+
+            // Batería electrónica de combate (doble bombo y fills extra cuando freneticDrums = true)
+            for (int beat = 0; beat < 4; beat++)
+            {
+                float bTime = barStart + beat * beatDur;
+                AddMusicKick(dryL, dryR, sampleRate, totalSamples, bTime, freneticDrums ? 155f : 142f, freneticDrums ? 41f : 46f, 0.26f, freneticDrums ? 0.24f : 0.22f);
+                if (beat == 1 || beat == 3)
+                {
+                    AddCombatSnare(dryL, dryR, feedL, feedR, sampleRate, totalSamples, bTime, freneticDrums ? 0.18f : 0.16f);
+                }
+                if (freneticDrums && (beat == 2 || (beat == 3 && bar % 2 == 1)))
+                {
+                    AddMusicKick(dryL, dryR, sampleRate, totalSamples, bTime + beatDur * 0.5f, 148f, 44f, 0.20f, 0.18f);
+                }
+            }
+            if (!freneticDrums && bar % 4 == 3)
+            {
+                AddMusicKick(dryL, dryR, sampleRate, totalSamples, barStart + beatDur * 3.5f, 136f, 48f, 0.19f, 0.17f);
+            }
+            if (bar == 7 || bar == 15 || (freneticDrums && bar % 4 == 3))
+            {
+                AddCombatSnare(dryL, dryR, feedL, feedR, sampleRate, totalSamples, barStart + beatDur * 3.5f, 0.13f);
+                AddCombatSnare(dryL, dryR, feedL, feedR, sampleRate, totalSamples, barStart + beatDur * 3.75f, 0.12f);
+            }
+
+            // Hi-hats en semicorcheas
+            for (int step = 0; step < 16; step++)
+            {
+                if (!freneticDrums && step % 4 == 0 && step != 8) continue;
+                bool accent = (step % 4 == 2) || (freneticDrums && step % 2 == 1 && step >= 12);
+                AddCombatHiHat(dryL, dryR, sampleRate, totalSamples, barStart + step * sixteenthDur, accent);
+            }
+
+            // Bajo ácido rodante de 16 semicorcheas con salto de octava/quinta
+            for (int step = 0; step < 16; step++)
+            {
+                int note = (step % 4 == 0 || step % 4 == 3) ? root : (step % 4 == 2 ? root + 12 : root + 7);
+                if (bar >= 8 && step == 15) note = root + 12;
+                float cutoff = (step % 4 == 2) ? (freneticDrums ? 3100f : 2600f) : (freneticDrums ? 1950f : 1550f);
+                AddCombatAcidBassStep(dryL, dryR, sampleRate, totalSamples, barStart + step * sixteenthDur, sixteenthDur * 0.94f, note, cutoff);
+            }
+
+            // Acordes estéreo con efecto sidechain
+            AddCombatPowerStabPad(dryL, dryR, sampleRate, totalSamples, barStart, barDur, beatDur, powerChords[bar], (bar >= 8 ? 0.056f : 0.042f) * (freneticDrums ? 1.1f : 1f));
+
+            if (bar < 8)
+            {
+                int[] arp = sectionAArps[bar];
+                for (int s = 0; s < arp.Length; s++)
+                {
+                    float pan = (s % 2 == 0) ? 0.34f : 0.66f;
+                    AddCombatSynthPluck(dryL, dryR, feedL, feedR, sampleRate, totalSamples,
+                        barStart + s * eighthDur, arp[s], pan, eighthDur * 1.15f, 0.082f * leadMixBoost);
+                }
+            }
+            else
+            {
+                int[] lead = sectionBLead[bar - 8];
+                for (int s = 0; s < lead.Length; s++)
+                {
+                    if (lead[s] < 0) continue;
+                    bool holdLong = (s + 1 < lead.Length && lead[s + 1] < 0);
+                    float noteDur = holdLong ? (eighthDur * 1.85f) : (eighthDur * 0.92f);
+                    AddCombatLeadTone(dryL, dryR, feedL, feedR, sampleRate, totalSamples,
+                        barStart + s * eighthDur, noteDur, lead[s]);
+                }
+            }
+        }
+
+        return FinalizeStereoLoopClip(clipName, dryL, dryR, feedL, feedR, sampleRate, totalSamples, beatDur, 0.90f);
+    }
+
+    private static float DeterministicNoise(int seed)
+    {
+        uint x = (uint)(seed * 747796405 + 2891336453u);
+        x = ((x >> ((int)(x >> 28) + 4)) ^ x) * 277803737u;
+        x = (x >> 22) ^ x;
+        return (x / (float)uint.MaxValue) * 2f - 1f;
+    }
+
+    private static void AddMusicKick(
+        float[] bufL, float[] bufR, int sampleRate, int totalSamples,
+        float startTime, float startFreq, float endFreq, float duration, float gain)
+    {
+        int startSample = Mathf.RoundToInt(startTime * sampleRate);
+        int count = Mathf.RoundToInt(duration * sampleRate);
+        float phase = 0f;
+        const float twoPi = Mathf.PI * 2f;
+
+        for (int i = 0; i < count; i++)
+        {
+            float t = i / (float)sampleRate;
+            float env = Mathf.Min(1f, t / 0.004f) * Mathf.Exp(-t * 14f);
+            float f = endFreq + (startFreq - endFreq) * Mathf.Exp(-t * 28f);
+            phase += twoPi * f / sampleRate;
+
+            float click = Mathf.Exp(-t * 220f) * 0.35f;
+            float sample = Mathf.Sin(phase) * env + click * Mathf.Sin(phase * 3f);
+            float outVal = Mathf.Clamp(sample * 1.25f / (1f + Mathf.Abs(sample) * 0.25f), -1f, 1f) * gain;
+
+            int idx = (startSample + i) % totalSamples;
+            bufL[idx] += outVal;
+            bufR[idx] += outVal;
+        }
+    }
+
+    private static void AddMenuAnalogPad(
+        float[] bufL, float[] bufR, int sampleRate, int totalSamples,
+        float startTime, float barDur, int[] midiNotes)
+    {
+        const float fadeDur = 1.05f;
+        float duration = barDur + fadeDur;
+        int startSample = Mathf.RoundToInt(startTime * sampleRate);
+        int count = Mathf.RoundToInt(duration * sampleRate);
+        float[] freqs = new float[midiNotes.Length];
+        for (int n = 0; n < midiNotes.Length; n++) freqs[n] = MidiToHz(midiNotes[n]);
+
+        const float twoPi = Mathf.PI * 2f;
+        float lpL = 0f, lpR = 0f;
+        for (int i = 0; i < count; i++)
+        {
+            float t = i / (float)sampleRate;
+            float fIn = Mathf.Clamp01(t / fadeDur);
+            float fOut = Mathf.Clamp01((duration - t) / fadeDur);
+            float env = (0.5f - 0.5f * Mathf.Cos(fIn * Mathf.PI)) * (0.5f - 0.5f * Mathf.Cos(fOut * Mathf.PI));
+
+            float sumL = 0f, sumR = 0f;
+            for (int n = 0; n < freqs.Length; n++)
+            {
+                float p1 = twoPi * freqs[n] * 0.9968f * t;
+                float p2 = twoPi * freqs[n] * 1.0032f * t;
+                sumL += Mathf.Sin(p1) + 0.32f * Mathf.Sin(2f * p1) + 0.14f * Mathf.Sin(3f * p1);
+                sumR += Mathf.Sin(p2) + 0.32f * Mathf.Sin(2f * p2) + 0.14f * Mathf.Sin(3f * p2);
+            }
+
+            float cutoff = 0.08f + 0.07f * (0.5f + 0.5f * Mathf.Sin(twoPi * 0.18f * t));
+            lpL += (sumL - lpL) * cutoff;
+            lpR += (sumR - lpR) * cutoff;
+
+            int idx = (startSample + i) % totalSamples;
+            float scale = 0.044f * env;
+            bufL[idx] += lpL * scale;
+            bufR[idx] += lpR * scale;
+        }
+    }
+
+    private static void AddMenuSubBass(
+        float[] bufL, float[] bufR, int sampleRate, int totalSamples,
+        float startTime, float duration, int midiNote)
+    {
+        float freq = MidiToHz(midiNote);
+        int startSample = Mathf.RoundToInt(startTime * sampleRate);
+        int count = Mathf.RoundToInt(duration * sampleRate);
+        const float twoPi = Mathf.PI * 2f;
+
+        for (int i = 0; i < count; i++)
+        {
+            float t = i / (float)sampleRate;
+            float envIn = Mathf.Clamp01(t / 0.035f);
+            float envOut = Mathf.Clamp01((duration - t) / 0.14f);
+            float env = envIn * envOut * Mathf.Exp(-t * 1.15f);
+
+            float p = twoPi * freq * t;
+            float val = (Mathf.Sin(p) + 0.30f * Mathf.Sin(2f * p) + 0.08f * Mathf.Sin(3f * p)) * 0.135f * env;
+            int idx = (startSample + i) % totalSamples;
+            bufL[idx] += val;
+            bufR[idx] += val;
+        }
+    }
+
+    private static void AddMenuSoftAirBrush(
+        float[] feedL, float[] feedR, int sampleRate, int totalSamples, float startTime, float gain)
+    {
+        int startSample = Mathf.RoundToInt(startTime * sampleRate);
+        int count = Mathf.RoundToInt(0.24f * sampleRate);
+        float lp = 0f;
+        for (int i = 0; i < count; i++)
+        {
+            float t = i / (float)sampleRate;
+            float env = Mathf.Min(1f, t / 0.015f) * Mathf.Exp(-t * 16f);
+            float n = DeterministicNoise(startSample + i * 3);
+            lp += (n - lp) * 0.22f;
+            float val = (n - lp) * 0.085f * gain * env;
+            int idx = (startSample + i) % totalSamples;
+            feedL[idx] += val * 0.85f;
+            feedR[idx] += val * 1.15f;
+        }
+    }
+
+    private static void AddMenuCrystalChime(
+        float[] dryL, float[] dryR, float[] feedL, float[] feedR,
+        int sampleRate, int totalSamples, float startTime, int midiNote, float pan)
+    {
+        const float duration = 1.15f;
+        float freq = MidiToHz(midiNote);
+        int startSample = Mathf.RoundToInt(startTime * sampleRate);
+        int count = Mathf.RoundToInt(duration * sampleRate);
+        const float twoPi = Mathf.PI * 2f;
+
+        float gL = Mathf.Cos(pan * Mathf.PI * 0.5f);
+        float gR = Mathf.Sin(pan * Mathf.PI * 0.5f);
+
+        for (int i = 0; i < count; i++)
+        {
+            float t = i / (float)sampleRate;
+            float env = Mathf.Clamp01(t / 0.006f) * Mathf.Clamp01((duration - t) / 0.05f) * Mathf.Exp(-t * 3.6f);
+            float mod = 1.15f * Mathf.Exp(-t * 9f) * Mathf.Sin(twoPi * (freq * 2.0f) * t);
+            float car = Mathf.Sin(twoPi * freq * t + mod) + 0.16f * Mathf.Sin(twoPi * freq * 3f * t) * Mathf.Exp(-t * 11f);
+
+            float val = car * env;
+            int idx = (startSample + i) % totalSamples;
+            dryL[idx] += val * 0.082f * gL;
+            dryR[idx] += val * 0.082f * gR;
+            feedL[idx] += val * 0.088f * gL;
+            feedR[idx] += val * 0.088f * gR;
+        }
+    }
+
+    private static void AddCombatSnare(
+        float[] dryL, float[] dryR, float[] feedL, float[] feedR,
+        int sampleRate, int totalSamples, float startTime, float gain)
+    {
+        int startSample = Mathf.RoundToInt(startTime * sampleRate);
+        int count = Mathf.RoundToInt(0.19f * sampleRate);
+        const float twoPi = Mathf.PI * 2f;
+        float phase = 0f;
+
+        for (int i = 0; i < count; i++)
+        {
+            float t = i / (float)sampleRate;
+            float f = 140f + 75f * Mathf.Exp(-t * 40f);
+            phase += twoPi * f / sampleRate;
+
+            float body = Mathf.Sin(phase) * Mathf.Exp(-t * 22f) * 0.45f;
+            float noise = DeterministicNoise(startSample + i * 7) * Mathf.Exp(-t * 18f) * 0.72f;
+            float val = (body + noise) * gain;
+
+            int idx = (startSample + i) % totalSamples;
+            dryL[idx] += val;
+            dryR[idx] += val;
+            feedL[idx] += val * 0.25f;
+            feedR[idx] += val * 0.25f;
+        }
+    }
+
+    private static void AddCombatHiHat(
+        float[] dryL, float[] dryR, int sampleRate, int totalSamples, float startTime, bool accent)
+    {
+        int startSample = Mathf.RoundToInt(startTime * sampleRate);
+        float dur = accent ? 0.075f : 0.042f;
+        int count = Mathf.RoundToInt(dur * sampleRate);
+        float prev = 0f;
+
+        for (int i = 0; i < count; i++)
+        {
+            float t = i / (float)sampleRate;
+            float env = Mathf.Exp(-t * (accent ? 42f : 85f));
+            float n = DeterministicNoise(startSample + i * 11);
+            float hp = n - prev * 0.78f;
+            prev = n;
+
+            float val = hp * env * (accent ? 0.068f : 0.042f);
+            int idx = (startSample + i) % totalSamples;
+            dryL[idx] += val * 0.90f;
+            dryR[idx] += val * 1.10f;
+        }
+    }
+
+    private static void AddCombatAcidBassStep(
+        float[] dryL, float[] dryR, int sampleRate, int totalSamples,
+        float startTime, float duration, int midiNote, float peakCutoffHz)
+    {
+        float freq = MidiToHz(midiNote);
+        int startSample = Mathf.RoundToInt(startTime * sampleRate);
+        int count = Mathf.RoundToInt(duration * sampleRate);
+        float lp = 0f;
+
+        for (int i = 0; i < count; i++)
+        {
+            float t = i / (float)sampleRate;
+            float envIn = Mathf.Clamp01(t / 0.004f);
+            float envOut = Mathf.Clamp01((duration - t) / 0.014f);
+            float env = envIn * envOut * Mathf.Exp(-t * 4.5f);
+
+            float cyc1 = (t * freq) % 1f;
+            float saw = cyc1 * 2f - 1f;
+            float sub = Mathf.Sin(Mathf.PI * 2f * freq * t);
+
+            float cutoffHz = 280f + peakCutoffHz * Mathf.Exp(-t * 18f);
+            float alpha = Mathf.Clamp(2f * Mathf.PI * cutoffHz / sampleRate, 0.02f, 0.75f);
+            lp += (saw - lp) * alpha;
+
+            float val = (lp * 0.72f + sub * 0.45f) * env * 0.17f;
+            int idx = (startSample + i) % totalSamples;
+            dryL[idx] += val;
+            dryR[idx] += val;
+        }
+    }
+
+    private static void AddCombatPowerStabPad(
+        float[] dryL, float[] dryR, int sampleRate, int totalSamples,
+        float startTime, float barDur, float beatDur, int[] midiNotes, float gain)
+    {
+        int startSample = Mathf.RoundToInt(startTime * sampleRate);
+        int count = Mathf.RoundToInt(barDur * sampleRate);
+        float[] freqs = new float[midiNotes.Length];
+        for (int n = 0; n < midiNotes.Length; n++) freqs[n] = MidiToHz(midiNotes[n]);
+
+        float lpL = 0f, lpR = 0f;
+        for (int i = 0; i < count; i++)
+        {
+            float t = i / (float)sampleRate;
+            float envIn = Mathf.Clamp01(t / 0.03f);
+            float envOut = Mathf.Clamp01((barDur - t) / 0.04f);
+            float beatFrac = (t % beatDur) / beatDur;
+            float sidechain = 1f - 0.58f * Mathf.Exp(-beatFrac * 7.5f);
+
+            float sL = 0f, sR = 0f;
+            for (int n = 0; n < freqs.Length; n++)
+            {
+                float c1 = ((t * freqs[n] * 0.996f) % 1f) * 2f - 1f;
+                float c2 = ((t * freqs[n] * 1.004f) % 1f) * 2f - 1f;
+                sL += c1;
+                sR += c2;
+            }
+            lpL += (sL - lpL) * 0.16f;
+            lpR += (sR - lpR) * 0.16f;
+
+            float scale = envIn * envOut * sidechain * gain;
+            int idx = (startSample + i) % totalSamples;
+            dryL[idx] += lpL * scale;
+            dryR[idx] += lpR * scale;
+        }
+    }
+
+    private static void AddCombatSynthPluck(
+        float[] dryL, float[] dryR, float[] feedL, float[] feedR,
+        int sampleRate, int totalSamples, float startTime, int midiNote, float pan, float duration, float gain)
+    {
+        float freq = MidiToHz(midiNote);
+        int startSample = Mathf.RoundToInt(startTime * sampleRate);
+        int count = Mathf.RoundToInt(duration * sampleRate);
+        float gL = Mathf.Cos(pan * Mathf.PI * 0.5f);
+        float gR = Mathf.Sin(pan * Mathf.PI * 0.5f);
+        float lp = 0f;
+
+        for (int i = 0; i < count; i++)
+        {
+            float t = i / (float)sampleRate;
+            float env = Mathf.Clamp01(t / 0.004f) * Mathf.Clamp01((duration - t) / 0.02f) * Mathf.Exp(-t * 9.5f);
+            float saw = (((t * freq) % 1f) * 2f - 1f) * 0.7f + (((t * freq * 2.003f) % 1f) * 2f - 1f) * 0.3f;
+            lp += (saw - lp) * Mathf.Clamp(0.45f * Mathf.Exp(-t * 8f) + 0.08f, 0.05f, 0.65f);
+
+            float val = lp * env;
+            int idx = (startSample + i) % totalSamples;
+            dryL[idx] += val * gain * gL;
+            dryR[idx] += val * gain * gR;
+            feedL[idx] += val * gain * 0.65f * gL;
+            feedR[idx] += val * gain * 0.65f * gR;
+        }
+    }
+
+    private static void AddCombatLeadTone(
+        float[] dryL, float[] dryR, float[] feedL, float[] feedR,
+        int sampleRate, int totalSamples, float startTime, float duration, int midiNote)
+    {
+        float freq = MidiToHz(midiNote);
+        int startSample = Mathf.RoundToInt(startTime * sampleRate);
+        int count = Mathf.RoundToInt(duration * sampleRate);
+        const float twoPi = Mathf.PI * 2f;
+        float lpL = 0f, lpR = 0f;
+
+        for (int i = 0; i < count; i++)
+        {
+            float t = i / (float)sampleRate;
+            float env = Mathf.Clamp01(t / 0.012f) * Mathf.Clamp01((duration - t) / 0.045f);
+            float vib = 1f + 0.0035f * Mathf.Sin(twoPi * 5.6f * t) * Mathf.Clamp01(t / 0.12f);
+
+            float f = freq * vib;
+            float sawL = (((t * f * 0.9965f) % 1f) * 2f - 1f) + 0.45f * Mathf.Sin(twoPi * f * t);
+            float sawR = (((t * f * 1.0035f) % 1f) * 2f - 1f) + 0.45f * Mathf.Sin(twoPi * f * t);
+            lpL += (sawL - lpL) * 0.28f;
+            lpR += (sawR - lpR) * 0.28f;
+
+            float vL = lpL * env;
+            float vR = lpR * env;
+            int idx = (startSample + i) % totalSamples;
+            dryL[idx] += vL * 0.088f;
+            dryR[idx] += vR * 0.088f;
+            feedL[idx] += vL * 0.068f;
+            feedR[idx] += vR * 0.068f;
+        }
+    }
+
+    private static void AddTutorialPadChord(
+        float[] bufL, float[] bufR, int sampleRate, int totalSamples,
+        float startTime, float barDur, int[] midiNotes)
+    {
+        const float fadeDur = 0.85f;
+        float duration = barDur + fadeDur;
+        int startSample = Mathf.RoundToInt(startTime * sampleRate);
+        int count = Mathf.RoundToInt(duration * sampleRate);
+
+        float[] freqs = new float[midiNotes.Length];
+        for (int n = 0; n < midiNotes.Length; n++) freqs[n] = MidiToHz(midiNotes[n]);
+
+        const float twoPi = Mathf.PI * 2f;
+        for (int i = 0; i < count; i++)
+        {
+            float t = i / (float)sampleRate;
+            float fIn = Mathf.Clamp01(t / fadeDur);
+            float fOut = Mathf.Clamp01((duration - t) / fadeDur);
+            float env = (0.5f - 0.5f * Mathf.Cos(fIn * Mathf.PI)) * (0.5f - 0.5f * Mathf.Cos(fOut * Mathf.PI));
+
+            float sumL = 0f;
+            float sumR = 0f;
+            for (int n = 0; n < freqs.Length; n++)
+            {
+                float pL = twoPi * (freqs[n] * 0.9982f) * t;
+                float pR = twoPi * (freqs[n] * 1.0018f) * t;
+                sumL += Mathf.Sin(pL) + 0.18f * Mathf.Sin(2f * pL);
+                sumR += Mathf.Sin(pR) + 0.18f * Mathf.Sin(2f * pR);
+            }
+
+            int idx = (startSample + i) % totalSamples;
+            float scale = 0.048f * env;
+            bufL[idx] += sumL * scale;
+            bufR[idx] += sumR * scale;
+        }
+    }
+
+    private static void AddTutorialBassNote(
+        float[] bufL, float[] bufR, int sampleRate, int totalSamples,
+        float startTime, float duration, int midiNote)
+    {
+        float freq = MidiToHz(midiNote);
+        int startSample = Mathf.RoundToInt(startTime * sampleRate);
+        int count = Mathf.RoundToInt(duration * sampleRate);
+        const float attack = 0.045f;
+        const float release = 0.18f;
+        const float twoPi = Mathf.PI * 2f;
+
+        for (int i = 0; i < count; i++)
+        {
+            float t = i / (float)sampleRate;
+            float envIn = Mathf.Clamp01(t / attack);
+            float envOut = Mathf.Clamp01((duration - t) / release);
+            float smooth = (0.5f - 0.5f * Mathf.Cos(envIn * Mathf.PI)) * (0.5f - 0.5f * Mathf.Cos(envOut * Mathf.PI));
+            float env = smooth * Mathf.Exp(-t * 1.35f);
+
+            float p = twoPi * freq * t;
+            float sample = (Mathf.Sin(p) + 0.25f * Mathf.Sin(2f * p)) * 0.12f * env;
+
+            int idx = (startSample + i) % totalSamples;
+            bufL[idx] += sample;
+            bufR[idx] += sample;
+        }
+    }
+
+    private static void AddTutorialPluckNote(
+        float[] dryL, float[] dryR, float[] feedL, float[] feedR,
+        int sampleRate, int totalSamples, float startTime, int midiNote, float pan)
+    {
+        const float duration = 0.95f;
+        const float attack = 0.008f;
+        const float release = 0.04f;
+        float freq = MidiToHz(midiNote);
+        int startSample = Mathf.RoundToInt(startTime * sampleRate);
+        int count = Mathf.RoundToInt(duration * sampleRate);
+        const float twoPi = Mathf.PI * 2f;
+
+        float gainL = Mathf.Cos(pan * Mathf.PI * 0.5f);
+        float gainR = Mathf.Sin(pan * Mathf.PI * 0.5f);
+
+        for (int i = 0; i < count; i++)
+        {
+            float t = i / (float)sampleRate;
+            float envIn = Mathf.Clamp01(t / attack);
+            float envOut = Mathf.Clamp01((duration - t) / release);
+            float env = envIn * envOut * Mathf.Exp(-t * 4.5f);
+
+            float p = twoPi * freq * t;
+            float tone = Mathf.Sin(p)
+                       + 0.26f * Mathf.Sin(2f * p) * Mathf.Exp(-t * 7f)
+                       + 0.10f * Mathf.Sin(3f * p) * Mathf.Exp(-t * 12f);
+
+            float val = tone * env;
+            int idx = (startSample + i) % totalSamples;
+
+            dryL[idx] += val * 0.095f * gainL;
+            dryR[idx] += val * 0.095f * gainR;
+            feedL[idx] += val * 0.075f * gainL;
+            feedR[idx] += val * 0.075f * gainR;
+        }
     }
 
     // ==========================================
@@ -308,6 +1782,144 @@ public class SoundController : MonoBehaviour
     public void PlayTier4LaserSfx() => PlayClip(ref tier4LaserSfx, "Audio/tier4_laser", 0.85f, 0.96f, 1.04f);
     public void PlayBossLaserSfx() => PlayClip(ref bossLaserSfx, "Audio/boss_laser", 1.0f, 0.98f, 1.02f);
     public void PlayBossDeathSfx() => PlayClip(ref bossDeathSfx, "Audio/boss_death", 1.15f);
+
+    /// <summary>
+    /// Reproduce un sonido de entrada distintivo y suave según el Tier del enemigo,
+    /// progresando hacia tonos más graves en los Tiers altos y evitando saturación en oleadas.
+    /// </summary>
+    public void PlayEnemyEntrySfx(EnemyTier tier)
+    {
+        if (entryAudioSource == null) InitAudioSources();
+
+        int idx = Mathf.Clamp((int)tier, 0, 3);
+        float cooldown = tier switch
+        {
+            EnemyTier.Tier1 => 0.38f,
+            EnemyTier.Tier2 => 0.34f,
+            EnemyTier.Tier3 => 0.30f,
+            _ => 0.26f
+        };
+
+        if (Time.unscaledTime - lastTierEntryTime[idx] < cooldown) return;
+        lastTierEntryTime[idx] = Time.unscaledTime;
+
+        AudioClip clip = (tierEntryClips != null && idx < tierEntryClips.Length) ? tierEntryClips[idx] : null;
+        if (clip == null)
+        {
+            if (generatedTierEntryClips[idx] == null)
+            {
+                generatedTierEntryClips[idx] = CreateTierEntryClip(tier);
+            }
+            clip = generatedTierEntryClips[idx];
+        }
+        if (clip == null) return;
+
+        float vol = tier switch
+        {
+            EnemyTier.Tier1 => 0.56f,
+            EnemyTier.Tier2 => 0.62f,
+            EnemyTier.Tier3 => 0.68f,
+            _ => 0.76f
+        };
+        entryAudioSource.PlayOneShot(clip, vol * sfxVolume);
+    }
+
+    public void PlayBossEntrySfx()
+    {
+        if (entryAudioSource == null) InitAudioSources();
+
+        if (bossEntrySfx == null)
+        {
+            if (generatedBossEntryClip == null) generatedBossEntryClip = CreateBossEntryClip();
+            bossEntrySfx = generatedBossEntryClip;
+        }
+        if (bossEntrySfx != null)
+        {
+            entryAudioSource.PlayOneShot(bossEntrySfx, 0.82f * sfxVolume);
+        }
+    }
+
+    private static AudioClip CreateTierEntryClip(EnemyTier tier)
+    {
+        return tier switch
+        {
+            // Tier 1: campana suave ligera (aguda pero aireada, nada agresiva)
+            EnemyTier.Tier1 => SynthesizeEntryTone("entry_tier1", 0.21f, 587.33f, 880.00f, 0f, 0.14f, 0.00f, 0.014f, true),
+            // Tier 2: pulso medio-cálido descendente
+            EnemyTier.Tier2 => SynthesizeEntryTone("entry_tier2", 0.26f, 349.23f, 261.63f, 0f, 0.24f, 0.08f, 0.016f, true),
+            // Tier 3: deslizamiento grave-medio tipo crucero
+            EnemyTier.Tier3 => SynthesizeEntryTone("entry_tier3", 0.35f, 220.00f, 146.83f, 330.00f, 0.32f, 0.12f, 0.020f, false),
+            // Tier 4: tono profundo y cálido tipo sub-bocina de artillero pesado
+            _ => SynthesizeEntryTone("entry_tier4", 0.44f, 116.54f, 82.41f, 174.61f, 0.42f, 0.18f, 0.022f, false)
+        };
+    }
+
+    private static AudioClip CreateBossEntryClip()
+    {
+        return SynthesizeEntryTone("entry_boss", 0.72f, 65.41f, 61.74f, 98.00f, 0.45f, 0.22f, 0.075f, false);
+    }
+
+    private static AudioClip SynthesizeEntryTone(
+        string clipName, float duration,
+        float freqStart, float freqEnd, float overtoneFreq,
+        float harm2Amp, float harm3Amp, float attackSec, bool steppedMelody)
+    {
+        const int sampleRate = 44100;
+        int totalSamples = Mathf.Max(256, Mathf.RoundToInt(duration * sampleRate));
+        float[] samples = new float[totalSamples];
+
+        const float twoPi = Mathf.PI * 2f;
+        float phase = 0f;
+        float overPhase = 0f;
+        float releaseSec = Mathf.Min(0.08f, duration * 0.35f);
+
+        for (int i = 0; i < totalSamples; i++)
+        {
+            float t = i / (float)sampleRate;
+            float u = Mathf.Clamp01(t / duration);
+
+            float freq;
+            if (steppedMelody)
+            {
+                // Transición suave en curva S alrededor de la mitad para dos notas limpias sin clics
+                float blend = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01((u - 0.36f) / 0.16f));
+                freq = Mathf.Lerp(freqStart, freqEnd, blend);
+            }
+            else
+            {
+                freq = Mathf.Lerp(freqStart, freqEnd, Mathf.Pow(u, 0.75f));
+            }
+
+            phase += twoPi * freq / sampleRate;
+            if (phase > twoPi) phase -= twoPi;
+
+            float envIn = Mathf.Clamp01(t / attackSec);
+            float envOut = Mathf.Clamp01((duration - t) / releaseSec);
+            float smoothIn = 0.5f - 0.5f * Mathf.Cos(envIn * Mathf.PI);
+            float smoothOut = 0.5f - 0.5f * Mathf.Cos(envOut * Mathf.PI);
+            float decay = Mathf.Exp(-u * (steppedMelody ? 1.75f : 1.35f));
+            float env = smoothIn * smoothOut * decay;
+
+            float wave = Mathf.Sin(phase)
+                       + harm2Amp * Mathf.Sin(2f * phase)
+                       + harm3Amp * Mathf.Sin(3f * phase);
+
+            if (overtoneFreq > 1f)
+            {
+                float overCur = overtoneFreq * Mathf.Lerp(1f, freqEnd / Mathf.Max(1f, freqStart), Mathf.Pow(u, 0.75f));
+                overPhase += twoPi * overCur / sampleRate;
+                if (overPhase > twoPi) overPhase -= twoPi;
+                wave += 0.28f * Mathf.Sin(overPhase);
+            }
+
+            float v = wave * 0.78f * env;
+            samples[i] = Mathf.Clamp(v / (1f + Mathf.Abs(v) * 0.25f), -0.94f, 0.94f);
+        }
+
+        AudioClip clip = AudioClip.Create(clipName, totalSamples, 1, sampleRate, false);
+        clip.SetData(samples, 0);
+        return clip;
+    }
 
     public void PlayPlayerDeathSfx()
     {

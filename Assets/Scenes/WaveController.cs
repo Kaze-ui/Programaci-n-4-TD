@@ -186,6 +186,18 @@ public class WaveController : MonoBehaviour
 
         SetupWaveDynamicSet(index, wave);
 
+        if (SoundController.Instance != null)
+        {
+            if (index >= 2)
+            {
+                SoundController.Instance.PlayFreneticGameMusic(true);
+            }
+            else
+            {
+                SoundController.Instance.PlayGameMusic(true);
+            }
+        }
+
         waveTimer = wave.waveDuration;
         waveActive = true;
         aliveEnemies.Clear();
@@ -356,6 +368,11 @@ public class WaveController : MonoBehaviour
 
         Time.timeScale = 0f; // Pausa todo el gameplay (movimiento, balas, enemigos)
 
+        if (SoundController.Instance != null)
+        {
+            SoundController.Instance.SetMusicMuffled(true);
+        }
+
         upgradePanel.SetActive(true);
 
         bool continuePressed = false;
@@ -371,6 +388,11 @@ public class WaveController : MonoBehaviour
         }
 
         upgradePanel.SetActive(false);
+
+        if (SoundController.Instance != null)
+        {
+            SoundController.Instance.SetMusicMuffled(false);
+        }
 
         Time.timeScale = 1f; // Reanuda el gameplay
     }
@@ -557,5 +579,43 @@ public class WaveController : MonoBehaviour
         {
             wave.spawnStagger = Mathf.Clamp((wave.waveDuration * 0.65f / totalCount) * 0.5f, minStagger, maxStagger);
         }
+    }
+
+    /// <summary>
+    /// Devuelve el prefab de bala grande utilizado por los enemigos Tier 3.
+    /// </summary>
+    public GameObject GetTier3BigBulletPrefab()
+    {
+        if (tier3Prefab != null && tier3Prefab.TryGetComponent<EnemyController>(out var t3) && t3.bigBulletPrefab != null)
+        {
+            return t3.bigBulletPrefab;
+        }
+
+        if (waves != null)
+        {
+            for (int w = 0; w < waves.Length; w++)
+            {
+                if (waves[w] == null || waves[w].enemies == null) continue;
+                for (int e = 0; e < waves[w].enemies.Length; e++)
+                {
+                    var entry = waves[w].enemies[e];
+                    if (entry == null || entry.enemyPrefab == null) continue;
+                    if (entry.enemyPrefab.TryGetComponent<EnemyController>(out var ec) && ec.bigBulletPrefab != null)
+                        return ec.bigBulletPrefab;
+                }
+            }
+        }
+
+        EnemyController[] activeEnemies = FindObjectsByType<EnemyController>();
+        for (int i = 0; i < activeEnemies.Length; i++)
+        {
+            if (activeEnemies[i] != null && activeEnemies[i].bigBulletPrefab != null)
+                return activeEnemies[i].bigBulletPrefab;
+        }
+
+        BossController boss = FindAnyObjectByType<BossController>();
+        if (boss != null && boss.bigBulletPrefab != null) return boss.bigBulletPrefab;
+
+        return null;
     }
 }

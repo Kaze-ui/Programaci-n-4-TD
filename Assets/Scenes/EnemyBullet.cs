@@ -64,6 +64,14 @@ public class EnemyBullet : MonoBehaviour
         if (other.CompareTag("Player"))
         {
             PlayerController player = other.GetComponent<PlayerController>();
+            bool deflected = player != null && player.IsInvulnerable;
+
+            Vector3 impactPos = other.ClosestPoint(transform.position);
+            float bulletExtent = Mathf.Max(Mathf.Abs(transform.localScale.x), Mathf.Abs(transform.localScale.y));
+            float vfxScale = Mathf.Clamp(bulletExtent / 45f, 0.85f, 2.2f);
+            Material mat = TryGetComponent<SpriteRenderer>(out var sr) ? sr.sharedMaterial : null;
+            EnemyExplosion.SpawnPlayerImpact(impactPos, deflected, vfxScale, mat);
+
             if (player != null)
             {
                 player.TakeDamage(damage);

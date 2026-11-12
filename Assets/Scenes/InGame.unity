@@ -2749,7 +2749,7 @@ MonoBehaviour:
   bigBulletPrefab: {fileID: 5817294819284719283, guid: c7e2b14489a24a68b5e28a71239c0e44, type: 3}
   firePoint: {fileID: 293136877}
   fireRate: 0.217
-  chargeTimeRequired: 2.5
+  chargeTimeRequired: 2.2
   bulletDamage: 0.5
   maxHealth: 10
 --- !u!61 &995606719

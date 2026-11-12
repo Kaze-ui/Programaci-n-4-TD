@@ -179,4 +179,112 @@ public class EnemyExplosion : MonoBehaviour
         yield return new WaitForSeconds(0.6f);
         Destroy(gameObject);
     }
+
+    /// <summary>
+    /// Efecto visual de colisión entre cualquier proyectil enemigo y la nave del jugador:
+    /// destello de impacto, anillo expansivo y chispas radiales.
+    /// </summary>
+    public static void SpawnPlayerImpact(Vector3 position, bool isShieldDeflect, float sizeMultiplier = 1f, Material material = null)
+    {
+        GameObject vfxObj = new GameObject("PlayerImpactVFX");
+        vfxObj.transform.position = position;
+
+        EnemyExplosion helper = vfxObj.AddComponent<EnemyExplosion>();
+        helper.StartCoroutine(helper.PlayPlayerImpactRoutine(isShieldDeflect, Mathf.Clamp(sizeMultiplier, 0.7f, 2.5f), material));
+    }
+
+    private IEnumerator PlayPlayerImpactRoutine(bool isShieldDeflect, float sizeMult, Material material)
+    {
+        Sprite glowSpr = ChargeVisualUtils.GetGlowCircleSprite();
+        Sprite ringSpr = ChargeVisualUtils.GetRadialRingSprite();
+        Sprite sparkSpr = ChargeVisualUtils.GetPlasmaStreakSprite();
+
+        Color primaryColor = isShieldDeflect
+            ? new Color(0.32f, 0.94f, 1.0f, 1f)
+            : new Color(1.0f, 0.42f, 0.16f, 1f);
+        Color coreColor = isShieldDeflect
+            ? new Color(0.85f, 1.0f, 1.0f, 1f)
+            : new Color(1.0f, 0.92f, 0.55f, 1f);
+
+        // 1. Destello central de impacto
+        GameObject coreObj = new GameObject("ImpactCore");
+        coreObj.transform.SetParent(transform, false);
+        SpriteRenderer coreSr = coreObj.AddComponent<SpriteRenderer>();
+        coreSr.sprite = glowSpr;
+        if (material != null) coreSr.material = material;
+        coreSr.sortingOrder = 22;
+        coreSr.color = coreColor;
+
+        // 2. Onda expansiva de choque
+        GameObject ringObj = new GameObject("ImpactRing");
+        ringObj.transform.SetParent(transform, false);
+        SpriteRenderer ringSr = ringObj.AddComponent<SpriteRenderer>();
+        ringSr.sprite = ringSpr;
+        if (material != null) ringSr.material = material;
+        ringSr.sortingOrder = 21;
+        ringSr.color = primaryColor;
+
+        // 3. Chispas radiales saliendo del punto de impacto
+        const int sparkCount = 7;
+        Transform[] sparkTrs = new Transform[sparkCount];
+        SpriteRenderer[] sparkSrs = new SpriteRenderer[sparkCount];
+        Vector3[] sparkDirs = new Vector3[sparkCount];
+        float[] sparkSpeeds = new float[sparkCount];
+
+        float baseAngle = Random.Range(0f, 360f);
+        for (int i = 0; i < sparkCount; i++)
+        {
+            float ang = baseAngle + (360f / sparkCount) * i + Random.Range(-18f, 18f);
+            float rad = ang * Mathf.Deg2Rad;
+            Vector3 dir = new Vector3(Mathf.Cos(rad), Mathf.Sin(rad), 0f);
+
+            GameObject spObj = new GameObject("Spark_" + i);
+            spObj.transform.SetParent(transform, false);
+            spObj.transform.rotation = Quaternion.Euler(0f, 0f, ang - 90f);
+
+            SpriteRenderer spSr = spObj.AddComponent<SpriteRenderer>();
+            spSr.sprite = sparkSpr;
+            if (material != null) spSr.material = material;
+            spSr.sortingOrder = 23;
+            spSr.color = i % 2 == 0 ? primaryColor : coreColor;
+
+            sparkTrs[i] = spObj.transform;
+            sparkSrs[i] = spSr;
+            sparkDirs[i] = dir;
+            sparkSpeeds[i] = Random.Range(280f, 480f) * sizeMult;
+        }
+
+        const float duration = 0.24f;
+        float elapsed = 0f;
+        while (elapsed < duration)
+        {
+            float dt = Time.deltaTime;
+            elapsed += dt;
+            float t = Mathf.Clamp01(elapsed / duration);
+
+            float coreScale = (t < 0.25f ? Mathf.Lerp(32f, 82f, t / 0.25f) : Mathf.Lerp(82f, 14f, (t - 0.25f) / 0.75f)) * sizeMult;
+            coreObj.transform.localScale = new Vector3(coreScale, coreScale, 1f);
+            coreSr.color = new Color(coreColor.r, coreColor.g, coreColor.b, 1f - t);
+
+            float ringScale = Mathf.Lerp(38f, 138f, Mathf.Sin(t * Mathf.PI * 0.5f)) * sizeMult;
+            ringObj.transform.localScale = new Vector3(ringScale, ringScale, 1f);
+            ringSr.color = new Color(primaryColor.r, primaryColor.g, primaryColor.b, Mathf.SmoothStep(0.95f, 0f, t));
+
+            float sparkAlpha = Mathf.SmoothStep(1f, 0f, t);
+            float sparkLen = Mathf.Lerp(42f, 16f, t) * sizeMult;
+            float sparkThick = Mathf.Lerp(18f, 6f, t) * sizeMult;
+            for (int i = 0; i < sparkCount; i++)
+            {
+                sparkTrs[i].localPosition += sparkDirs[i] * sparkSpeeds[i] * dt;
+                sparkTrs[i].localScale = new Vector3(sparkThick, sparkLen, 1f);
+                Color sc = (i % 2 == 0 ? primaryColor : coreColor);
+                sc.a = sparkAlpha;
+                sparkSrs[i].color = sc;
+            }
+
+            yield return null;
+        }
+
+        Destroy(gameObject);
+    }
 }

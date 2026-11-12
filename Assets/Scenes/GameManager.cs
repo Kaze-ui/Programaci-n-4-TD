@@ -11,7 +11,8 @@ public class GameManager : MonoBehaviour
     [Header("Referencias")]
     public PlayerController player;
     public PlayerController player2 { get; private set; }
-    public bool IsPlayer2Joined => player2 != null;
+    private bool hasPlayer2Joined = false;
+    public bool IsPlayer2Joined => hasPlayer2Joined || player2 != null;
     public HUDManager hudManager;
     public GameOverManager gameOverManager;
     public WaveController waveController;
@@ -22,6 +23,10 @@ public class GameManager : MonoBehaviour
 
     private int currentScore = 0;
     private float elapsedTime = 0f;
+    private bool isAwaitingScreamRevive = false;
+    private int screamReviveCount = 0;
+    private const int MaxScreamRevivesPerRun = 3;
+    public bool IsAwaitingScreamRevive => isAwaitingScreamRevive;
 
     void Awake()
     {
@@ -52,7 +57,7 @@ public class GameManager : MonoBehaviour
 
     void Update()
     {
-        if (currentState == GameState.Won || currentState == GameState.Lost) return;
+        if (currentState == GameState.Won || currentState == GameState.Lost || isAwaitingScreamRevive) return;
 
         elapsedTime += Time.deltaTime;
 
@@ -106,6 +111,7 @@ public class GameManager : MonoBehaviour
         p2Obj.name = "Player2";
 
         player2 = p2Obj.GetComponent<PlayerController>();
+        hasPlayer2Joined = true;
         player2.playerIndex = 2;
         player2.bulletDamage = player.bulletDamage;
         player2.moveSpeed = player.moveSpeed;
@@ -145,7 +151,10 @@ public class GameManager : MonoBehaviour
         {
             hudManager.UpdateP2Status(true, true, player2.GetCurrentHealth(), player2.maxHealth);
             hudManager.UpdateHealth(player.GetCurrentHealth(), player.maxHealth, true);
-            hudManager.ShowWaveBanner("¡JUGADOR 2 UNIDO!", "¡Mando asignado al Jugador 2!");
+            string subMsg = GetConnectedGamepadCount() >= 2
+                ? "¡1P: Mando 1  •  2P: Mando 2!"
+                : "¡Mando asignado al Jugador 2!";
+            hudManager.ShowWaveBanner("¡JUGADOR 2 UNIDO!", subMsg);
         }
     }
 
@@ -187,10 +196,12 @@ public class GameManager : MonoBehaviour
 
     }
 
-    public static bool IsGamepadConnected()
+    public static int GetConnectedGamepadCount()
     {
-        if (UnityEngine.InputSystem.Gamepad.all.Count > 0) return true;
+        int inputSystemCount = UnityEngine.InputSystem.Gamepad.all.Count;
+        if (inputSystemCount > 0) return inputSystemCount;
 
+        int legacyCount = 0;
         try
         {
             string[] names = Input.GetJoystickNames();
@@ -198,33 +209,72 @@ public class GameManager : MonoBehaviour
             {
                 for (int i = 0; i < names.Length; i++)
                 {
-                    if (!string.IsNullOrEmpty(names[i])) return true;
+                    if (!string.IsNullOrEmpty(names[i])) legacyCount++;
                 }
             }
         }
         catch { }
 
-        return false;
+        return legacyCount;
+    }
+
+    /// <summary>
+    /// Asigna un Gamepad específico a cada jugador:
+    /// - Con 2 o más mandos conectados: 1P usa Mando 1 (índice 0) y 2P usa Mando 2 (índice 1).
+    /// - Con 1 solo mando conectado: 1P usa Teclado + Mouse (null aquí) y 2P usa ese único mando (índice 0).
+    /// </summary>
+    public static UnityEngine.InputSystem.Gamepad GetGamepadForPlayer(int playerIndex)
+    {
+        var pads = UnityEngine.InputSystem.Gamepad.all;
+        if (pads.Count >= 2)
+        {
+            if (playerIndex == 1) return pads[0];
+            if (playerIndex == 2) return pads[1];
+        }
+        else if (pads.Count == 1)
+        {
+            if (playerIndex == 2) return pads[0];
+        }
+        return null;
+    }
+
+    public static bool IsGamepadConnected()
+    {
+        return GetConnectedGamepadCount() > 0;
     }
 
     public static bool IsGamepadStartPressed()
     {
-        if (UnityEngine.InputSystem.Gamepad.current != null)
+        var pads = UnityEngine.InputSystem.Gamepad.all;
+        if (pads.Count >= 2)
         {
-            if (UnityEngine.InputSystem.Gamepad.current.startButton.wasPressedThisFrame)
-            {
-                return true;
-            }
+            return pads[1] != null && pads[1].startButton.wasPressedThisFrame;
+        }
+        if (pads.Count == 1)
+        {
+            return pads[0] != null && pads[0].startButton.wasPressedThisFrame;
         }
 
         try
         {
-            if (Input.GetKeyDown(KeyCode.JoystickButton7) ||
-                Input.GetKeyDown(KeyCode.Joystick1Button7) ||
-                Input.GetKeyDown(KeyCode.JoystickButton9) ||
-                Input.GetKeyDown(KeyCode.Joystick1Button9))
+            int count = GetConnectedGamepadCount();
+            if (count >= 2)
             {
-                return true;
+                if (Input.GetKeyDown(KeyCode.Joystick2Button7) ||
+                    Input.GetKeyDown(KeyCode.Joystick2Button9))
+                {
+                    return true;
+                }
+            }
+            else if (count == 1)
+            {
+                if (Input.GetKeyDown(KeyCode.JoystickButton7) ||
+                    Input.GetKeyDown(KeyCode.Joystick1Button7) ||
+                    Input.GetKeyDown(KeyCode.JoystickButton9) ||
+                    Input.GetKeyDown(KeyCode.Joystick1Button9))
+                {
+                    return true;
+                }
             }
         }
         catch { }
@@ -237,9 +287,13 @@ public class GameManager : MonoBehaviour
         currentState = GameState.Playing;
         currentScore = 0;
         elapsedTime = 0f;
+        hasPlayer2Joined = (player2 != null);
+        isAwaitingScreamRevive = false;
+        screamReviveCount = 0;
 
         if (SoundController.Instance != null)
         {
+            SoundController.Instance.SetMusicMuffled(false);
             SoundController.Instance.PlayGameMusic();
         }
 
@@ -293,6 +347,12 @@ public class GameManager : MonoBehaviour
         ReviveDeadPlayersForNextWave();
 
         currentState = GameState.BossFight;
+
+        if (SoundController.Instance != null)
+        {
+            SoundController.Instance.SetMusicMuffled(false);
+            SoundController.Instance.PlayBossMusic(true);
+        }
 
         if (hudManager != null)
         {
@@ -352,13 +412,88 @@ public class GameManager : MonoBehaviour
 
     public void OnPlayerDied(PlayerController pc)
     {
+        if (currentState == GameState.Won || currentState == GameState.Lost || isAwaitingScreamRevive) return;
+
         bool p1Alive = player != null && player.gameObject.activeInHierarchy && player.GetCurrentHealth() > 0;
         bool p2Alive = player2 != null && player2.gameObject.activeInHierarchy && player2.GetCurrentHealth() > 0;
 
         if (!p1Alive && !p2Alive)
         {
-            LoseGame();
+            if (screamReviveCount < MaxScreamRevivesPerRun)
+            {
+                StartScreamReviveSequence();
+            }
+            else
+            {
+                LoseGame();
+            }
         }
+    }
+
+    private long GetReviveHealthForAttempt(int attemptNumber, long currentMaxHealth)
+    {
+        long penalty = System.Math.Max(0L, (long)(attemptNumber - 1) * 3L);
+        long baseHealth = currentMaxHealth > 10L ? currentMaxHealth : 10L;
+        return System.Math.Max(1L, baseHealth - penalty);
+    }
+
+    private void StartScreamReviveSequence()
+    {
+        isAwaitingScreamRevive = true;
+        Time.timeScale = 0f;
+
+        if (SoundController.Instance != null)
+        {
+            SoundController.Instance.StopChargeSound();
+            SoundController.Instance.PauseMusic();
+        }
+
+        if (hudManager != null)
+        {
+            hudManager.HideWaveBannerImmediately();
+        }
+
+        bool isCoop = IsPlayer2Joined;
+        int nextAttempt = screamReviveCount + 1;
+        long previewHp = GetReviveHealthForAttempt(nextAttempt, player != null ? player.maxHealth : 10L);
+        ScreamReviveController.Show(isCoop, nextAttempt, MaxScreamRevivesPerRun, previewHp, OnScreamReviveSucceeded, OnScreamReviveFailed);
+    }
+
+    private void OnScreamReviveSucceeded()
+    {
+        isAwaitingScreamRevive = false;
+        screamReviveCount++;
+
+        long p1Hp = GetReviveHealthForAttempt(screamReviveCount, player != null ? player.maxHealth : 10L);
+        if (player != null)
+        {
+            player.ReviveWithHealthAndInvulnerability(p1Hp, 5.0f);
+        }
+
+        if (player2 != null)
+        {
+            long p2Hp = GetReviveHealthForAttempt(screamReviveCount, player2.maxHealth);
+            player2.ReviveWithHealthAndInvulnerability(p2Hp, 5.0f);
+        }
+
+        Time.timeScale = 1f;
+
+        if (SoundController.Instance != null)
+        {
+            SoundController.Instance.ResumeMusic();
+            SoundController.Instance.PlayUpgradeContinueSfx();
+        }
+
+        if (hudManager != null)
+        {
+            hudManager.ShowWaveBanner("¡REACTOR REINICIADO!", $"¡Reviviste con {p1Hp} de vida + 5s de escudo!");
+        }
+    }
+
+    private void OnScreamReviveFailed()
+    {
+        isAwaitingScreamRevive = false;
+        LoseGame();
     }
 
     public void OnPlayerDied()
@@ -405,7 +540,7 @@ public class GameManager : MonoBehaviour
 
         if (gameOverManager != null)
         {
-            gameOverManager.SetResults(currentScore, elapsedTime, isVictory);
+            gameOverManager.SetResults(currentScore, elapsedTime, isVictory, IsPlayer2Joined);
         }
     }
 }

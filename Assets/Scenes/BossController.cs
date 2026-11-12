@@ -52,14 +52,32 @@ public class BossController : MonoBehaviour, IDamageable
     private GameObject activeWarningLaser;
     private GameObject activeRealLaser;
     private List<GameObject> spawnedMinions = new List<GameObject>();
+    private bool hasAnnouncedEntry = false;
+
+    private Vector3 baseScale;
+    private float bossAnimPhase;
+    private float bankAmount;
+    private float recoilTimer;
+    private float recoilStrength;
+    private int recoilAlternation = 1;
+    private float laserChargeProgress;
+    private bool isFiringLaser;
+    private SpriteRenderer vfxAuraGlowSr;
+    private Transform vfxOuterVortexTr;
+    private SpriteRenderer vfxOuterVortexSr;
+    private Transform vfxInnerVortexTr;
+    private SpriteRenderer vfxInnerVortexSr;
+    private float baseAuraScale;
+    private float baseOuterVortexScale;
+    private float baseInnerVortexScale;
 
     void Start()
     {
         if (GameManager.Instance != null && GameManager.Instance.IsPlayer2Joined)
             maxHealth = Mathf.Max(1, Mathf.RoundToInt(maxHealth * 1.9f));
 
-        smallBulletCadence *= 1.15f;
-        bigBulletCadence *= 1.15f;
+        smallBulletCadence *= 1.3225f; // -15% adicional de generación de balas (1.15 * 1.15)
+        bigBulletCadence *= 1.3225f;   // -15% adicional de generación de balas (1.15 * 1.15)
         if (Mathf.Approximately(smallBulletSpeed, 400f) || Mathf.Approximately(smallBulletSpeed, 280f)) smallBulletSpeed = 460f;
 
         currentHealth = maxHealth;
@@ -72,6 +90,7 @@ public class BossController : MonoBehaviour, IDamageable
             transform.position = new Vector3(transform.position.x, Mathf.Max(transform.position.y, screenTop), transform.position.z);
         }
 
+        InitBossAnimation();
         GameManager.Instance?.hudManager?.ActivateBossHealthBar("Leviatán nodriza", maxHealth);
     }
 
@@ -82,10 +101,20 @@ public class BossController : MonoBehaviour, IDamageable
         if (!hasEntered)
         {
             transform.position += Vector3.down * entrySpeed * Time.deltaTime;
+            if (!hasAnnouncedEntry && mainCam != null && transform.position.y <= mainCam.transform.position.y + mainCam.orthographicSize)
+            {
+                hasAnnouncedEntry = true;
+                SoundController.Instance?.PlayBossEntrySfx();
+            }
             if (transform.position.y <= targetY)
             {
                 transform.position = new Vector3(transform.position.x, targetY, transform.position.z);
                 hasEntered = true;
+                if (!hasAnnouncedEntry)
+                {
+                    hasAnnouncedEntry = true;
+                    SoundController.Instance?.PlayBossEntrySfx();
+                }
                 StartCoroutine(SmallBulletBottomRoutine());
                 StartCoroutine(BigBulletDiagonalRoutine());
                 StartCoroutine(SuperLaserRoutine());
@@ -94,9 +123,13 @@ public class BossController : MonoBehaviour, IDamageable
         }
         else
         {
-            float speed = (playerController != null ? playerController.moveSpeed * 0.70f : moveSpeed);
-            transform.position += Vector3.right * moveDirection * speed * Time.deltaTime;
+            float baseSpeed = (playerController != null ? playerController.moveSpeed * 0.70f : moveSpeed);
+            float rageMult = (currentHealth <= maxHealth * 0.5f) ? 1.32f : 1f;
+            transform.position += Vector3.right * moveDirection * (baseSpeed * rageMult) * Time.deltaTime;
         }
+
+        UpdateBossAnimation();
+        UpdateBossVfx();
     }
 
     void LateUpdate()
@@ -154,6 +187,7 @@ public class BossController : MonoBehaviour, IDamageable
 
                 FireBullet(bulletPrefab, smallBulletSpeed, dir, spawnPos);
             }
+            TriggerRecoil(0.55f);
         }
     }
 
@@ -170,6 +204,7 @@ public class BossController : MonoBehaviour, IDamageable
 
             for (int i = 0; i < offsets.Length; i++)
                 FireBullet(bigBulletPrefab, bigBulletSpeed, dirs[i], transform.position + offsets[i], bigBulletLifetime);
+            TriggerRecoil(0.95f);
         }
     }
 
@@ -188,7 +223,14 @@ public class BossController : MonoBehaviour, IDamageable
             activeWarningLaser.transform.localScale = new Vector3(laserWidth, laserLength, 1f);
             Destroy(activeWarningLaser, laserWarningDuration);
 
-            yield return new WaitForSeconds(laserWarningDuration);
+            float warnElapsed = 0f;
+            while (warnElapsed < laserWarningDuration)
+            {
+                warnElapsed += Time.deltaTime;
+                laserChargeProgress = Mathf.Clamp01(warnElapsed / Mathf.Max(0.01f, laserWarningDuration));
+                yield return null;
+            }
+            laserChargeProgress = 0f;
             DestroySafe(ref activeWarningLaser);
 
             // Láser destructivo
@@ -205,12 +247,16 @@ public class BossController : MonoBehaviour, IDamageable
             }
 
             SoundController.Instance?.PlayBossLaserSfx();
+            isFiringLaser = true;
+            TriggerRecoil(1.45f);
             Destroy(activeRealLaser, laserActiveDuration);
 
             yield return new WaitForSeconds(laserActiveDuration);
+            isFiringLaser = false;
             DestroySafe(ref activeRealLaser);
 
-            yield return new WaitForSeconds(5f);
+            float cycleCooldown = Mathf.Max(5.75f, (laserWarningDuration + laserActiveDuration + 5f) * 1.15f - laserWarningDuration - laserActiveDuration);
+            yield return new WaitForSeconds(cycleCooldown);
         }
     }
 
@@ -282,7 +328,12 @@ public class BossController : MonoBehaviour, IDamageable
         if (Time.timeScale == 0f || isDead) return;
         currentHealth -= amount;
         GameManager.Instance?.hudManager?.UpdateBossHealth(currentHealth);
-        if (currentHealth <= 0.001f) Die();
+        if (currentHealth <= 0.001f)
+        {
+            Die();
+            return;
+        }
+        SpriteHitFlash.TriggerOn(gameObject);
     }
 
     public void DoubleHealth()
@@ -294,6 +345,8 @@ public class BossController : MonoBehaviour, IDamageable
     }
 
     public bool IsDead() => isDead || currentHealth <= 0.001f;
+    public bool IsEnraged => !isDead && currentHealth <= maxHealth * 0.5f;
+    public bool IsLaserActive => !isDead && isFiringLaser;
 
     void Die()
     {
@@ -307,11 +360,128 @@ public class BossController : MonoBehaviour, IDamageable
         GameManager.Instance?.OnBossDefeated(scoreValue);
 
         Material mat = TryGetComponent<SpriteRenderer>(out var sr) ? sr.sharedMaterial : null;
-        EnemyExplosion.SpawnBossSequence(transform.position, transform.localScale, mat);
+        EnemyExplosion.SpawnBossSequence(transform.position, baseScale, mat);
         Destroy(gameObject);
     }
 
-    void OnDisable() => CleanupAll();
+    private void InitBossAnimation()
+    {
+        baseScale = transform.localScale;
+        bossAnimPhase = UnityEngine.Random.Range(0f, Mathf.PI * 2f);
+
+        SpriteRenderer parentSr = GetComponent<SpriteRenderer>();
+        float bossSpan = (parentSr != null && parentSr.sprite != null)
+            ? Mathf.Max(parentSr.sprite.bounds.size.x, parentSr.sprite.bounds.size.y)
+            : 1f;
+
+        Sprite glowSprite = ChargeVisualUtils.GetGlowCircleSprite();
+        if (glowSprite != null)
+        {
+            vfxAuraGlowSr = CreateBossVfxChild("Vfx_BossAuraGlow", Vector3.zero, glowSprite, parentSr, -1, 1.24f, bossSpan, new Color(0.90f, 0.18f, 0.28f, 0.22f), out baseAuraScale);
+        }
+
+        Sprite vortexSprite = ChargeVisualUtils.GetEnergyVortexSprite();
+        if (vfxSpriteExists(vortexSprite))
+        {
+            Vector3 coreOffset = new Vector3(0f, -bossSpan * 0.08f, 0f);
+            vfxOuterVortexSr = CreateBossVfxChild("Vfx_BossOuterVortex", coreOffset, vortexSprite, parentSr, 1, 0.44f, bossSpan, new Color(1f, 0.32f, 0.38f, 0.36f), out baseOuterVortexScale);
+            vfxOuterVortexTr = vfxOuterVortexSr.transform;
+
+            vfxInnerVortexSr = CreateBossVfxChild("Vfx_BossInnerVortex", coreOffset, vortexSprite, parentSr, 2, 0.24f, bossSpan, new Color(0.55f, 0.90f, 1f, 0.52f), out baseInnerVortexScale);
+            vfxInnerVortexTr = vfxInnerVortexSr.transform;
+        }
+    }
+
+    private static bool vfxSpriteExists(Sprite sp) => sp != null;
+
+    private SpriteRenderer CreateBossVfxChild(string name, Vector3 localPos, Sprite sprite, SpriteRenderer parentSr, int orderOffset, float ratioOfBossSpan, float bossSpan, Color color, out float computedScale)
+    {
+        float spSpan = Mathf.Max(0.001f, Mathf.Max(sprite.bounds.size.x, sprite.bounds.size.y));
+        computedScale = ratioOfBossSpan * (bossSpan / spSpan);
+
+        GameObject go = new GameObject(name);
+        go.transform.SetParent(transform, false);
+        go.transform.localPosition = localPos;
+        go.transform.localScale = Vector3.one * computedScale;
+
+        SpriteRenderer sr = go.AddComponent<SpriteRenderer>();
+        sr.sprite = sprite;
+        if (parentSr != null)
+        {
+            sr.sortingLayerID = parentSr.sortingLayerID;
+            sr.sortingOrder = parentSr.sortingOrder + orderOffset;
+        }
+        sr.color = color;
+        return sr;
+    }
+
+    private void TriggerRecoil(float strength)
+    {
+        recoilTimer = 0.16f;
+        recoilStrength = Mathf.Max(recoilStrength, strength);
+        recoilAlternation = -recoilAlternation;
+    }
+
+    private void UpdateBossAnimation()
+    {
+        float bankInput = hasEntered ? moveDirection : 0f;
+        ChargeVisualUtils.EvalShipBank(ref bankAmount, bankInput, Time.deltaTime, 9.5f, 0.14f, out _, out float bankScaleX);
+
+        if (recoilTimer > 0f)
+        {
+            recoilTimer = Mathf.Max(0f, recoilTimer - Time.deltaTime);
+            if (recoilTimer <= 0f) recoilStrength = 0f;
+        }
+
+        // Mantener la nave nodriza recta hacia abajo (sin rotaciones diagonales)
+        transform.localRotation = Quaternion.identity;
+        transform.localScale = new Vector3(
+            baseScale.x * bankScaleX,
+            baseScale.y,
+            baseScale.z);
+    }
+
+    private void UpdateBossVfx()
+    {
+        bool enraged = currentHealth <= maxHealth * 0.5f;
+        float pulse = 0.5f + 0.5f * Mathf.Sin(Time.time * (enraged ? 6.5f : 3.6f) + bossAnimPhase);
+        float flare = Mathf.Max(laserChargeProgress, isFiringLaser ? 1f : 0f);
+
+        if (vfxAuraGlowSr != null)
+        {
+            vfxAuraGlowSr.transform.localScale = Vector3.one * (baseAuraScale * (1f + pulse * 0.08f + flare * 0.16f));
+            Color calm = new Color(0.88f, 0.18f, 0.28f, 0.20f + pulse * 0.11f);
+            Color angry = new Color(1f, 0.28f, 0.18f, 0.42f + pulse * 0.16f);
+            vfxAuraGlowSr.color = Color.Lerp(calm, angry, enraged ? Mathf.Max(0.45f, flare) : flare);
+        }
+
+        if (vfxOuterVortexTr != null && vfxOuterVortexSr != null)
+        {
+            float spinSpeed = 75f + (enraged ? 55f : 0f) + flare * 260f;
+            vfxOuterVortexTr.Rotate(0f, 0f, -spinSpeed * Time.deltaTime);
+            vfxOuterVortexTr.localScale = Vector3.one * (baseOuterVortexScale * (1f + pulse * 0.12f + flare * 0.28f));
+            Color baseCol = enraged ? new Color(1f, 0.28f, 0.22f, 0.48f) : new Color(0.98f, 0.30f, 0.42f, 0.36f);
+            Color hotCol = new Color(1f, 0.55f, 0.25f, 0.72f);
+            vfxOuterVortexSr.color = Color.Lerp(baseCol, hotCol, flare);
+        }
+
+        if (vfxInnerVortexTr != null && vfxInnerVortexSr != null)
+        {
+            float spinSpeed = 125f + (enraged ? 85f : 0f) + flare * 380f;
+            vfxInnerVortexTr.Rotate(0f, 0f, spinSpeed * Time.deltaTime);
+            vfxInnerVortexTr.localScale = Vector3.one * (baseInnerVortexScale * (1f + (1f - pulse) * 0.14f + flare * 0.34f));
+            Color baseCol = new Color(0.50f, 0.88f, 1f, 0.45f + pulse * 0.15f);
+            Color beamCol = new Color(0.85f, 0.96f, 1f, 0.90f);
+            vfxInnerVortexSr.color = Color.Lerp(baseCol, beamCol, isFiringLaser ? 1f : laserChargeProgress * 0.75f);
+        }
+    }
+
+    void OnDisable()
+    {
+        laserChargeProgress = 0f;
+        isFiringLaser = false;
+        CleanupAll();
+    }
     void OnDestroy() => CleanupAll();
 
     void CleanupLasersOnly()

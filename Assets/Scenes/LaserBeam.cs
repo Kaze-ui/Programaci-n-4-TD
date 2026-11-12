@@ -51,6 +51,8 @@ public class LaserBeam : MonoBehaviour
         PlayerController player = other.GetComponent<PlayerController>();
         if (player != null)
         {
+            Vector3 impactPos = other.ClosestPoint(transform.position);
+            EnemyExplosion.SpawnPlayerImpact(impactPos, player.IsInvulnerable, 1.15f);
             player.TakeDamage(damage);
             nextDamageTime = Time.time + damageTickInterval;
         }

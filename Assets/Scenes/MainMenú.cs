@@ -8,26 +8,52 @@ public class MainMenu : MonoBehaviour
 {
     private static Sprite s_PlayBtnSprite;
     private static Sprite s_QuitBtnSprite;
+    private static Sprite s_TutorialBtnSprite;
+    private TutorialPanelController tutorialController;
 
     void Awake()
     {
+        EnsureEventSystem();
         EnsureMenuBackground();
         SetupTitle();
         SetupButtons();
+        EnsureTutorialPanel();
         if (SoundController.Instance != null)
         {
             SoundController.Instance.PlayMenuMusic();
         }
     }
 
+    void Start()
+    {
+        // Re-verificar en Start para garantizar orden y presencia tras inicialización de escena
+        EnsureEventSystem();
+        EnsureMenuBackground();
+        SetupButtons();
+        EnsureTutorialPanel();
+    }
 
+    private void EnsureEventSystem()
+    {
+        EventSystem es = FindAnyObjectByType<EventSystem>();
+        if (es == null)
+        {
+            GameObject esObj = new GameObject("EventSystem", typeof(EventSystem), typeof(UnityEngine.InputSystem.UI.InputSystemUIInputModule));
+        }
+    }
 
     private void EnsureMenuBackground()
     {
         Canvas canvas = FindAnyObjectByType<Canvas>();
         if (canvas == null) return;
 
-        Transform existingBg = canvas.transform.Find("MenuBackground_Image");
+        // Asegurar que el Canvas tenga GraphicRaycaster activo
+        if (canvas.GetComponent<GraphicRaycaster>() == null)
+        {
+            canvas.gameObject.AddComponent<GraphicRaycaster>();
+        }
+
+        Transform existingBg = canvas.transform.Find("MenuBackground_Interactive");
         GameObject bgObj;
         if (existingBg != null)
         {
@@ -35,24 +61,22 @@ public class MainMenu : MonoBehaviour
         }
         else
         {
-            bgObj = new GameObject("MenuBackground_Image", typeof(RectTransform));
+            bgObj = new GameObject("MenuBackground_Interactive", typeof(RectTransform));
             bgObj.transform.SetParent(canvas.transform, false);
             bgObj.transform.SetAsFirstSibling();
         }
 
-        Image img = bgObj.GetComponent<Image>() ?? bgObj.AddComponent<Image>();
-        Sprite bgSprite = Resources.Load<Sprite>("Sprites/MenuBackground");
-        if (bgSprite != null)
+        if (bgObj.GetComponent<MenuInteractiveBackground>() == null)
         {
-            img.sprite = bgSprite;
+            bgObj.AddComponent<MenuInteractiveBackground>();
         }
-        img.color = new Color(0.92f, 0.94f, 1f, 1f);
 
-        RectTransform rt = bgObj.GetComponent<RectTransform>();
-        rt.anchorMin = Vector2.zero;
-        rt.anchorMax = Vector2.one;
-        rt.offsetMin = Vector2.zero;
-        rt.offsetMax = Vector2.zero;
+        // Eliminar fondo estático viejo si existía
+        Transform oldBg = canvas.transform.Find("MenuBackground_Image");
+        if (oldBg != null)
+        {
+            Destroy(oldBg.gameObject);
+        }
     }
 
     private void SetupTitle()
@@ -85,7 +109,7 @@ public class MainMenu : MonoBehaviour
         titleTmp.characterSpacing = 6f;
         titleTmp.raycastTarget = false;
 
-        // 2. Subtítulo temático
+        // 2. Subtítulo temático con alto contraste y placa de respaldo para legibilidad total
         Transform subTrans = canvas.transform.Find("Subtitle_SpaceWars");
         GameObject subObj = subTrans != null ? subTrans.gameObject : new GameObject("Subtitle_SpaceWars", typeof(RectTransform));
         subObj.transform.SetParent(canvas.transform, false);
@@ -95,11 +119,36 @@ public class MainMenu : MonoBehaviour
         subRt.anchorMax = new Vector2(0.5f, 0.5f);
         subRt.pivot = new Vector2(0.5f, 0.5f);
         subRt.anchoredPosition = new Vector2(0f, 118f);
-        subRt.sizeDelta = new Vector2(600f, 40f);
+        subRt.sizeDelta = new Vector2(580f, 42f);
 
-        TextMeshProUGUI subTmp = subObj.GetComponent<TextMeshProUGUI>() ?? subObj.AddComponent<TextMeshProUGUI>();
+        // Si subObj tiene TextMeshProUGUI huérfano, lo eliminamos para evitar conflicto con Graphic (Image)
+        TextMeshProUGUI oldTmp = subObj.GetComponent<TextMeshProUGUI>();
+        if (oldTmp != null)
+        {
+            DestroyImmediate(oldTmp);
+        }
+
+        // Placa de respaldo oscura translúcida con sutil borde cian para contraste cristalino
+        Image subBg = subObj.GetComponent<Image>() ?? subObj.AddComponent<Image>();
+        subBg.sprite = GenerateButtonSprite(new Color(0.22f, 0.74f, 0.97f, 0.55f), new Color(0.02f, 0.05f, 0.12f, 0.90f), new Color(0.01f, 0.02f, 0.06f, 0.90f));
+        subBg.type = Image.Type.Simple;
+        subBg.raycastTarget = false;
+
+        // Texto hijo separado para que Image y TextMeshProUGUI no compartan el mismo GameObject
+        Transform textChildTrans = subObj.transform.Find("SubText");
+        GameObject textChildObj = textChildTrans != null ? textChildTrans.gameObject : new GameObject("SubText", typeof(RectTransform));
+        textChildObj.transform.SetParent(subObj.transform, false);
+
+        RectTransform textRt = textChildObj.GetComponent<RectTransform>();
+        textRt.anchorMin = Vector2.zero;
+        textRt.anchorMax = Vector2.one;
+        textRt.offsetMin = Vector2.zero;
+        textRt.offsetMax = Vector2.zero;
+
+        TextMeshProUGUI subTmp = textChildObj.GetComponent<TextMeshProUGUI>() ?? textChildObj.AddComponent<TextMeshProUGUI>();
         if (sharedFont != null) subTmp.font = sharedFont;
-        subTmp.text = "<color=#94A3B8>PROTOCOLO DE DEFENSA GALÁCTICA</color>";
+        // Texto con brillo blanco/plateado de máximo contraste
+        subTmp.text = "<color=#F8FAFC><b>PROTOCOLO DE DEFENSA GALÁCTICA</b></color>";
         subTmp.fontSize = 17;
         subTmp.fontStyle = FontStyles.Bold;
         subTmp.alignment = TextAlignmentOptions.Center;
@@ -121,27 +170,78 @@ public class MainMenu : MonoBehaviour
             );
         }
 
+        if (s_TutorialBtnSprite == null)
+        {
+            s_TutorialBtnSprite = GenerateButtonSprite(
+                new Color(0.22f, 0.88f, 0.45f, 1f),       // Borde verde esmeralda
+                new Color(0.05f, 0.22f, 0.11f, 0.94f),     // Fondo superior
+                new Color(0.02f, 0.09f, 0.04f, 0.94f)      // Fondo inferior
+            );
+        }
+
         if (s_QuitBtnSprite == null)
         {
             s_QuitBtnSprite = GenerateButtonSprite(
                 new Color(1f, 0.32f, 0.38f, 1f),          // Borde rojo neón
                 new Color(0.22f, 0.08f, 0.12f, 0.94f),     // Fondo superior
-                new Color(0.07f, 0.03f, 0.06f, 0.94f)      // Fondo inferior
+                new Color(0.12f, 0.03f, 0.05f, 0.94f)      // Fondo inferior
             );
         }
 
-        // Configurar Botón PLAY
+        // Configurar Botón PLAY (arriba)
         Button playBtn = FindButtonByName(canvas, "PlayButton");
-        if (playBtn != null)
+
+        // Configurar Botón TUTORIAL (en el centro, verde esmeralda con IDÉNTICO recuadro que Play y Quit)
+        Button tutorialBtn = FindButtonByName(canvas, "TutorialButton");
+        if (tutorialBtn == null)
         {
-            StyleButton(playBtn, new Vector2(0f, 12f), s_PlayBtnSprite, "<color=#38BDF8><b>PLAY</b></color>", new Color(0.22f, 0.74f, 0.97f));
+            if (playBtn != null)
+            {
+                // Duplicar el GameObject del PlayButton para copiar exactamente estructura y componentes
+                GameObject tutObj = Instantiate(playBtn.gameObject, canvas.transform, false);
+                tutObj.name = "TutorialButton";
+
+                // Remover el Button viejo clonado (que traía la llamada persistente a PlayGame) y agregar uno limpio
+                Button oldBtn = tutObj.GetComponent<Button>();
+                if (oldBtn != null)
+                {
+                    DestroyImmediate(oldBtn);
+                }
+                tutorialBtn = tutObj.AddComponent<Button>();
+            }
+            else
+            {
+                GameObject tutObj = new GameObject("TutorialButton", typeof(RectTransform));
+                tutObj.transform.SetParent(canvas.transform, false);
+                tutorialBtn = tutObj.AddComponent<Button>();
+
+                GameObject textObj = new GameObject("Text", typeof(RectTransform));
+                textObj.transform.SetParent(tutObj.transform, false);
+                TextMeshProUGUI tmp = textObj.AddComponent<TextMeshProUGUI>();
+                TMP_FontAsset sharedFont = null;
+                TextMeshProUGUI anyTmp = canvas.GetComponentInChildren<TextMeshProUGUI>();
+                if (anyTmp != null) sharedFont = anyTmp.font;
+                if (sharedFont != null) tmp.font = sharedFont;
+            }
         }
 
-        // Configurar Botón QUIT
+        tutorialBtn.onClick.RemoveAllListeners();
+        tutorialBtn.onClick.AddListener(OpenTutorial);
+
+        // Configurar Botón QUIT (abajo)
         Button quitBtn = FindButtonByName(canvas, "QuitButton");
+
+        if (playBtn != null)
+        {
+            StyleButton(playBtn, new Vector2(0f, 35f), s_PlayBtnSprite, "<color=#38BDF8><b>PLAY</b></color>", new Color(0.22f, 0.74f, 0.97f));
+        }
+
+        // Asegurar que el botón del tutorial tenga el mismo recuadro pero en color verde esmeralda
+        StyleButton(tutorialBtn, new Vector2(0f, -35f), s_TutorialBtnSprite, "<color=#4ADE80><b>TUTORIAL</b></color>", new Color(0.22f, 0.88f, 0.45f));
+
         if (quitBtn != null)
         {
-            StyleButton(quitBtn, new Vector2(0f, -70f), s_QuitBtnSprite, "<color=#FF6B6B><b>QUIT</b></color>", new Color(1f, 0.42f, 0.42f));
+            StyleButton(quitBtn, new Vector2(0f, -105f), s_QuitBtnSprite, "<color=#FF6B6B><b>QUIT</b></color>", new Color(1f, 0.42f, 0.42f));
         }
     }
 
@@ -165,12 +265,19 @@ public class MainMenu : MonoBehaviour
         rt.sizeDelta = new Vector2(290f, 58f);
 
         Image img = btn.GetComponent<Image>();
-        if (img != null)
+        if (img == null)
+        {
+            img = btn.gameObject.AddComponent<Image>();
+        }
+        if (bgSprite != null)
         {
             img.sprite = bgSprite;
-            img.type = Image.Type.Simple;
-            img.color = Color.white;
+            img.type = Image.Type.Sliced;
         }
+        img.color = Color.white;
+        img.raycastTarget = true; // Asegurar respuesta de clics
+
+        btn.targetGraphic = img;
 
         // Configuración de transiciones de color limpias
         ColorBlock cb = btn.colors;
@@ -180,6 +287,7 @@ public class MainMenu : MonoBehaviour
         cb.selectedColor = Color.white;
         cb.fadeDuration = 0.08f;
         btn.colors = cb;
+        btn.interactable = true;
 
         // Texto del botón
         TextMeshProUGUI tmp = btn.GetComponentInChildren<TextMeshProUGUI>();
@@ -196,7 +304,7 @@ public class MainMenu : MonoBehaviour
             tmp.fontStyle = FontStyles.Bold;
             tmp.alignment = TextAlignmentOptions.Center;
             tmp.characterSpacing = 4f;
-            tmp.raycastTarget = false;
+            tmp.raycastTarget = false; // El texto nunca debe bloquear el clic al botón
         }
 
         // Componente interactivo de animación de escala y sonidos al pasar el mouse
@@ -206,12 +314,13 @@ public class MainMenu : MonoBehaviour
 
     private static Sprite GenerateButtonSprite(Color borderColor, Color bodyTop, Color bodyBot)
     {
-        int w = 290;
-        int h = 58;
+        return GeneratePanelSprite(290, 58, 8, 2, borderColor, bodyTop, bodyBot);
+    }
+
+    public static Sprite GeneratePanelSprite(int w, int h, int r, int borderWidth, Color borderColor, Color bodyTop, Color bodyBot)
+    {
         Texture2D tex = new Texture2D(w, h, TextureFormat.RGBA32, false);
         Color[] pixels = new Color[w * h];
-        int r = 8;
-        int borderWidth = 2;
 
         for (int y = 0; y < h; y++)
         {
@@ -252,6 +361,44 @@ public class MainMenu : MonoBehaviour
         tex.SetPixels(pixels);
         tex.Apply();
         return Sprite.Create(tex, new Rect(0, 0, w, h), new Vector2(0.5f, 0.5f));
+    }
+
+    public void OpenTutorial()
+    {
+        if (SoundController.Instance != null)
+        {
+            SoundController.Instance.PlayUpgradePurchasedSfx();
+        }
+
+        EnsureTutorialPanel();
+        if (tutorialController != null)
+        {
+            tutorialController.OpenTutorial();
+        }
+    }
+
+    private void EnsureTutorialPanel()
+    {
+        if (tutorialController != null) return;
+
+        Canvas canvas = FindAnyObjectByType<Canvas>();
+        if (canvas == null) return;
+
+        Transform existingPanel = canvas.transform.Find("TutorialPanel");
+        GameObject panelObj;
+        if (existingPanel != null)
+        {
+            panelObj = existingPanel.gameObject;
+        }
+        else
+        {
+            panelObj = new GameObject("TutorialPanel", typeof(RectTransform));
+            panelObj.transform.SetParent(canvas.transform, false);
+            panelObj.transform.SetAsLastSibling();
+        }
+
+        tutorialController = panelObj.GetComponent<TutorialPanelController>() ?? panelObj.AddComponent<TutorialPanelController>();
+        panelObj.SetActive(false);
     }
 
     public void PlayGame()
@@ -342,5 +489,11 @@ public class MenuButtonHover : MonoBehaviour, IPointerEnterHandler, IPointerExit
     public void OnPointerUp(PointerEventData eventData)
     {
         targetScale = originalScale * 1.05f;
+    }
+
+    void OnDisable()
+    {
+        targetScale = originalScale;
+        transform.localScale = originalScale;
     }
 }
