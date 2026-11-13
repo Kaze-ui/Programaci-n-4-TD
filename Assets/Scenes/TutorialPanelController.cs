@@ -874,30 +874,24 @@ public class TutorialPanelController : MonoBehaviour
             "<b>MOVER NAVE A LA DERECHA</b>\n\nDesplaza tu nave velozmente hacia el sector derecho.",
             () => Keyboard.current != null && (Keyboard.current.dKey.isPressed || Keyboard.current.rightArrowKey.isPressed));
 
-        float switchY = startY - 108f;
-        CreateInteractiveKey(kbPanel.transform, new Vector2(-36f, switchY), new Vector2(54f, 40f), "Q",
-            "TECLA Q",
-            "<b>CAMBIAR MODO DE DISPARO</b>\n\nAlterna rápidamente entre disparo continuo y disparo pesado cargado.",
-            () => Keyboard.current != null && Keyboard.current.qKey.isPressed);
+        float actionRowY = startY - 108f;
+        CreateInteractiveKey(kbPanel.transform, new Vector2(-42f, actionRowY), new Vector2(72f, 40f), "Z",
+            "TECLA Z (DISPARAR)",
+            "<b>DISPARAR ARMA ACTIVA</b>\n\n• <b>Modo Normal:</b> Mantén presionada la tecla Z para disparar ráfagas automáticas continuas sin espammear.\n• <b>Modo Cargado:</b> Mantén presionado para acumular energía.",
+            () => Keyboard.current != null && (Keyboard.current.zKey.isPressed || Keyboard.current.spaceKey.isPressed));
 
-        CreateInteractiveKey(kbPanel.transform, new Vector2(36f, switchY), new Vector2(54f, 40f), "E",
-            "TECLA E",
-            "<b>CAMBIAR MODO DE DISPARO</b>\n\nAlterna rápidamente entre disparo continuo y disparo pesado cargado.",
-            () => Keyboard.current != null && Keyboard.current.eKey.isPressed);
+        CreateInteractiveKey(kbPanel.transform, new Vector2(42f, actionRowY), new Vector2(72f, 40f), "X",
+            "TECLA X (CAMBIAR MODO)",
+            "<b>CAMBIAR MODO DE DISPARO</b>\n\nAlterna rápidamente entre disparo continuo convencional y bala pesada cargada.",
+            () => Keyboard.current != null && (Keyboard.current.xKey.isPressed || Keyboard.current.qKey.isPressed || Keyboard.current.eKey.isPressed));
 
-        float shiftY = switchY - 52f;
+        float shiftY = actionRowY - 50f;
         CreateInteractiveKey(kbPanel.transform, new Vector2(0f, shiftY), new Vector2(172f, 38f), "SHIFT",
             "TECLA SHIFT (PRECISIÓN)",
             "<b>MODO LENTO / PRECISIÓN</b>\n\nActiva o desactiva la reducción de velocidad para maniobras exactas entre balas.",
             () => Keyboard.current != null && (Keyboard.current.leftShiftKey.isPressed || Keyboard.current.rightShiftKey.isPressed));
 
-        float spaceY = shiftY - 48f;
-        CreateInteractiveKey(kbPanel.transform, new Vector2(0f, spaceY), new Vector2(172f, 42f), "SPACE",
-            "BARRA ESPACIADORA",
-            "<b>DISPARAR PROYECTIL</b>\n\nDispara tu arma o cárgala manteniéndola presionada (alternativa al clic izquierdo).",
-            () => Keyboard.current != null && Keyboard.current.spaceKey.isPressed);
-
-        float escY = spaceY - 46f;
+        float escY = shiftY - 48f;
         CreateInteractiveKey(kbPanel.transform, new Vector2(0f, escY), new Vector2(130f, 34f), "ESC",
             "TECLA ESCAPE",
             "<b>SALIR DEL TUTORIAL</b>\n\nCierra la simulación y regresa al Menú Principal.",
@@ -2036,7 +2030,8 @@ public class TutorialUIPlayer : MonoBehaviour
     {
         bool toggleMode = false;
         if (Mouse.current != null && Mouse.current.rightButton.wasPressedThisFrame) toggleMode = true;
-        if (Keyboard.current != null && (Keyboard.current.qKey.wasPressedThisFrame || Keyboard.current.eKey.wasPressedThisFrame)) toggleMode = true;
+        // Tecla X para cambiar de modo de arma
+        if (Keyboard.current != null && (Keyboard.current.xKey.wasPressedThisFrame || Keyboard.current.qKey.wasPressedThisFrame || Keyboard.current.eKey.wasPressedThisFrame)) toggleMode = true;
 
         bool isLtDown = TutorialPanelController.AnyGamepadMatches(p => p.leftTrigger.isPressed || p.leftTrigger.ReadValue() > 0.35f);
         if (isLtDown && !prevLeftTriggerDown)
@@ -2069,7 +2064,8 @@ public class TutorialUIPlayer : MonoBehaviour
         {
             isHoldingFire = true;
         }
-        if (Keyboard.current != null && Keyboard.current.spaceKey.isPressed)
+        // Tecla Z (o Barra espaciadora) para disparar ráfagas automáticas en modo normal al mantener presionado
+        if (Keyboard.current != null && (Keyboard.current.zKey.isPressed || Keyboard.current.spaceKey.isPressed))
         {
             isHoldingFire = true;
         }

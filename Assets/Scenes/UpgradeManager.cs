@@ -15,7 +15,7 @@ public class UpgradeManager : MonoBehaviour
     [Header("Velocidad")]
     [SerializeField] private Button speedButton;
     [SerializeField] private TextMeshProUGUI speedCostText;
-    [SerializeField] private float speedIncreasePerLevel = 150f;
+    [SerializeField] private float speedIncreasePerLevel = 350f; // Incremento notable (+39% por nivel)
     private int speedLevel = 0;
 
     [Header("Salud")]
@@ -75,6 +75,10 @@ public class UpgradeManager : MonoBehaviour
 
     void Awake()
     {
+        if (speedIncreasePerLevel < 350f)
+        {
+            speedIncreasePerLevel = 350f; // Asegura aumento sustancial de velocidad (+39% sobre velocidad base)
+        }
         SetupLayoutAndCards();
     }
 
@@ -84,6 +88,12 @@ public class UpgradeManager : MonoBehaviour
         hasContinued = false;
         screamUnlocked = false;
         wasCoopOnOpen = GameManager.Instance != null && GameManager.Instance.IsPlayer2Joined;
+
+        // Ocultar cualquier texto o cronómetro residual del HUD durante la pantalla de mejoras
+        if (GameManager.Instance != null && GameManager.Instance.hudManager != null)
+        {
+            GameManager.Instance.hudManager.HideTimerForUpgrade(true);
+        }
 
         if (continueButton != null)
         {
@@ -109,6 +119,11 @@ public class UpgradeManager : MonoBehaviour
     {
         screamSession.Stop();
         if (continueRect != null) continueRect.anchoredPosition = new Vector2(0f, -262f);
+
+        if (GameManager.Instance != null && GameManager.Instance.hudManager != null)
+        {
+            GameManager.Instance.hudManager.HideTimerForUpgrade(false);
+        }
     }
 
     void OnDestroy()
@@ -538,8 +553,14 @@ public class UpgradeManager : MonoBehaviour
         }
 
         damageLevel++;
-        if (playerController != null) playerController.IncreaseDamage(damageIncreasePerLevel);
-        if (GameManager.Instance != null && GameManager.Instance.player2 != null) GameManager.Instance.player2.IncreaseDamage(damageIncreasePerLevel);
+        PlayerController p1 = playerController != null ? playerController : GameManager.Instance.player;
+        if (p1 == null) p1 = FindAnyObjectByType<PlayerController>();
+        if (p1 != null) p1.IncreaseDamage(damageIncreasePerLevel);
+
+        if (GameManager.Instance.player2 != null && GameManager.Instance.player2 != p1)
+        {
+            GameManager.Instance.player2.IncreaseDamage(damageIncreasePerLevel);
+        }
         RefreshUI();
 
         if (SoundController.Instance != null)
@@ -564,8 +585,16 @@ public class UpgradeManager : MonoBehaviour
         }
 
         speedLevel++;
-        if (playerController != null) playerController.IncreaseSpeed(speedIncreasePerLevel);
-        if (GameManager.Instance != null && GameManager.Instance.player2 != null) GameManager.Instance.player2.IncreaseSpeed(speedIncreasePerLevel);
+        PlayerController p1 = playerController != null ? playerController : GameManager.Instance.player;
+        if (p1 == null) p1 = FindAnyObjectByType<PlayerController>();
+        if (p1 != null)
+        {
+            p1.IncreaseSpeed(speedIncreasePerLevel);
+        }
+        if (GameManager.Instance.player2 != null && GameManager.Instance.player2 != p1)
+        {
+            GameManager.Instance.player2.IncreaseSpeed(speedIncreasePerLevel);
+        }
         RefreshUI();
 
         if (SoundController.Instance != null)
@@ -576,8 +605,11 @@ public class UpgradeManager : MonoBehaviour
 
     private void PurchaseHealth()
     {
+        PlayerController p1 = playerController != null ? playerController : GameManager.Instance?.player;
+        if (p1 == null) p1 = FindAnyObjectByType<PlayerController>();
+
         // El máximo de vidas es 10. Si ya tiene 10 o más vidas, no se permite comprar
-        bool isHealthMaxed = (playerController != null && playerController.GetCurrentHealth() >= 10) &&
+        bool isHealthMaxed = (p1 != null && p1.GetCurrentHealth() >= 10) &&
                              (GameManager.Instance == null || GameManager.Instance.player2 == null || GameManager.Instance.player2.GetCurrentHealth() >= 10);
 
         if (isHealthMaxed)
@@ -604,8 +636,11 @@ public class UpgradeManager : MonoBehaviour
         }
 
         healthLevel++;
-        if (playerController != null) playerController.IncreaseMaxHealth(healthIncreasePerLevel);
-        if (GameManager.Instance != null && GameManager.Instance.player2 != null) GameManager.Instance.player2.IncreaseMaxHealth(healthIncreasePerLevel);
+        if (p1 != null) p1.IncreaseMaxHealth(healthIncreasePerLevel);
+        if (GameManager.Instance.player2 != null && GameManager.Instance.player2 != p1)
+        {
+            GameManager.Instance.player2.IncreaseMaxHealth(healthIncreasePerLevel);
+        }
         RefreshUI();
 
         if (SoundController.Instance != null)

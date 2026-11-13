@@ -1,5 +1,6 @@
 using UnityEngine;
 using UnityEngine.UI;
+using TMPro;
 
 public class PlayerController : MonoBehaviour
 {
@@ -56,36 +57,97 @@ public class PlayerController : MonoBehaviour
     private long currentHealth = 10;
 
     [Header("Invulnerabilidad")]
-    public float invulnerabilityDuration = 3.0f;
+    public float invulnerabilityDuration = 2.0f; // Disminuido a 2 segundos tras recibir daño sin escudo
     private float invulnerabilityTimer = 0f;
     private SpriteRenderer shipSpriteRenderer;
 
-    // Anti-camping en la parte superior de la pantalla
+    // Lista estática de jugadores activos para detección de proximidad y ralentización de proyectiles
+    public static readonly System.Collections.Generic.List<PlayerController> ActivePlayers = new System.Collections.Generic.List<PlayerController>();
+
+    [Header("Campo de Fuerza y Ralentización")]
+    public const float ForceFieldRadius = 125f; // Área del campo de fuerza donde las balas enemigas se ralentizan un 50%
+    public const float BulletSlowRadius = ForceFieldRadius; // Alias para compatibilidad
+    public const float ShieldCloseRadius = ForceFieldRadius;
+    public const float ShieldProximityRadius = ForceFieldRadius;
+    public float maxShieldCapacity = 100f; // 100 unidades de capacidad de escudo
+    public float currentShieldCapacity = 100f;
+    private float displayedShieldCapacity = 100f;
+    public bool HasShield => currentShieldCapacity > 0.001f;
+
+    private float lastBulletVeryCloseTime = -10f;
+    private float lastThreatInSlowRadiusTime = -10f;
+
+    private GameObject forceFieldObj;
+    private SpriteRenderer forceFieldSr;
+    private float forceFieldAlpha = 0f;
+
+    [Header("Contorno Blanco, Hitbox Visual y Barra de Escudo")]
+    private GameObject shipOutlineRoot;
+    private SpriteRenderer[] outlineRenderers;
+    private float outlineAlpha = 0f;
+
+    private GameObject hitboxDotObj;
+    private SpriteRenderer hitboxDotSr;
+    private float hitboxDotAlpha = 0f;
+    private Vector3 baseHitboxScale = new Vector3(0.32f, 0.32f, 1f);
+
+    private GameObject shieldBarRoot;
+    private Image shieldBarBgImage;
+    private Image shieldBarFillImage;
+    private TextMeshProUGUI shieldBarWarningText;
+    private CanvasGroup shieldBarCanvasGroup;
+    private Transform shieldBarCanvasTransform;
+    private Vector3 baseShieldBarCanvasScale = Vector3.one;
+    private Vector3 baseShieldBarLocalPos = Vector3.zero;
+    private float depletedWarningTimer = 0f;
+    private float shieldBarAlpha = 1.0f;
+
+    // Anti-camping en la parte superior de la pantalla:
+    // Tarda 1 segundo menos en aparecer (1.0s en lugar de 2.0s)
+    // Cadencia aumentada un 40% (dispara cada 0.6s si permanece allí) y viaja un 40% más rápido
     private float topCampTimer = 0f;
-    private const float TopCampTriggerSeconds = 2.0f;
-    private const float TopCampPunishBulletSpeed = 2800f * (4f / 3f); // +1/3 de velocidad
+    private float topCampRepeatTimer = 0f;
+    private bool hasSpawnedFirstCampBullet = false;
+    private const float TopCampTriggerSeconds = 1.0f; // 1 segundo menos que antes (era 2.0s)
+    private const float TopCampRepeatCadence = 0.60f; // Cadencia de disparo 40% más rápida (1.0s * (1 - 0.40))
+    private const float TopCampPunishBulletSpeed = 2800f * (4f / 3f) * 1.40f; // +40% velocidad adicional
     public bool IsInvulnerable => invulnerabilityTimer > 0f;
 
     [Header("Límites de pantalla")]
     public float screenPadding = 25f;
     private Camera mainCam;
 
+    void OnEnable()
+    {
+        if (!ActivePlayers.Contains(this)) ActivePlayers.Add(this);
+    }
+
+    void OnDestroy()
+    {
+        ActivePlayers.Remove(this);
+    }
+
     void Start()
     {
+        if (!ActivePlayers.Contains(this)) ActivePlayers.Add(this);
+
         if (Mathf.Approximately(fireRate, 0.3f) || Mathf.Approximately(fireRate, 0.25f)) fireRate = 0.217f;
         if (Mathf.Approximately(slowSpeedReduction, 0.60f)) slowSpeedReduction = 0.45f;
         if (Mathf.Approximately(chargeTimeRequired, 2.5f)) chargeTimeRequired = 2.2f;
         if (currentHealth <= 0) currentHealth = maxHealth;
         mainCam = Camera.main;
 
-        // Hitbox 2.5 veces más chica para esquivar la lluvia de proyectiles con mayor facilidad
+        // Agrandar la nave un 30% visualmente manteniendo la hitbox EXACTAMENTE igual en el mundo:
+        // Se compensa dividiendo el tamaño del collider por 1.30f para que al multiplicarse por el nuevo
+        // scale de la nave (baseShipScale * 1.30f) la hitbox física conserve su dimensión milimétrica idéntica.
+        const float shipScaleMultiplier = 1.30f;
         if (TryGetComponent<BoxCollider2D>(out var boxCol))
         {
-            boxCol.size = new Vector2(0.4f, 0.4f);
+            boxCol.size = new Vector2(0.4f / shipScaleMultiplier, 0.4f / shipScaleMultiplier);
         }
         else if (TryGetComponent<CircleCollider2D>(out var circleCol))
         {
-            circleCol.radius = 0.2f;
+            circleCol.radius = 0.2f / shipScaleMultiplier;
         }
 
         if (firePoint == null)
@@ -96,10 +158,19 @@ public class PlayerController : MonoBehaviour
 
         ApplyShipVisuals();
         EnsureChargeVisuals();
+        EnsureForceFieldVisuals();
+        EnsureShipOutlineVisuals();
+        EnsureHitboxDotVisuals();
+        EnsureShieldBarVisuals();
+        RestoreShield();
 
         // Respaldo seguro usando scale.y por si Player2 se clona mientras Player1 está inclinado
         float initY = Mathf.Abs(transform.localScale.y) > 0.01f ? Mathf.Abs(transform.localScale.y) : 70f;
-        baseShipScale = new Vector3(Mathf.Sign(transform.localScale.x) * initY, transform.localScale.y, transform.localScale.z);
+        if (initY < 85f)
+        {
+            initY *= shipScaleMultiplier; // +30% tamaño visual de la nave
+        }
+        baseShipScale = new Vector3(Mathf.Sign(transform.localScale.x) * initY, initY, transform.localScale.z);
         transform.localScale = baseShipScale;
         transform.localRotation = Quaternion.identity;
         currentBank = 0f;
@@ -252,15 +323,425 @@ public class PlayerController : MonoBehaviour
         }
     }
 
+    public Vector3 GetHitboxCenter()
+    {
+        Collider2D col = GetComponent<Collider2D>();
+        return col != null ? col.bounds.center : transform.position;
+    }
+
+    public void NotifyBulletVeryClose()
+    {
+        lastBulletVeryCloseTime = Time.time;
+        lastThreatInSlowRadiusTime = Time.time;
+    }
+
+    public void NotifyThreatInSlowRadius()
+    {
+        lastThreatInSlowRadiusTime = Time.time;
+    }
+
+    public void NotifyBulletInShieldField()
+    {
+        NotifyBulletVeryClose();
+    }
+
+    public void NotifyBulletInForceField()
+    {
+        NotifyBulletVeryClose();
+    }
+
+    public void NotifyBulletInProximityField()
+    {
+        NotifyThreatInSlowRadius();
+    }
+
+    private void EnsureForceFieldVisuals()
+    {
+        if (forceFieldObj != null && forceFieldSr != null) return;
+
+        Transform existing = transform.Find("BlueForceFieldAura");
+        if (existing != null)
+        {
+            forceFieldObj = existing.gameObject;
+            forceFieldSr = forceFieldObj.GetComponent<SpriteRenderer>();
+        }
+        else
+        {
+            forceFieldObj = new GameObject("BlueForceFieldAura");
+            forceFieldObj.transform.SetParent(transform, false);
+            forceFieldObj.transform.localPosition = Vector3.zero;
+            // Más chico que la última vez (era 2.6f, ahora 1.95f)
+            forceFieldObj.transform.localScale = new Vector3(1.95f, 1.95f, 1f);
+
+            forceFieldSr = forceFieldObj.AddComponent<SpriteRenderer>();
+            forceFieldSr.sprite = ChargeVisualUtils.GetForceFieldAuraSprite();
+            if (shipSpriteRenderer == null) shipSpriteRenderer = GetComponent<SpriteRenderer>();
+            int baseOrder = shipSpriteRenderer != null ? shipSpriteRenderer.sortingOrder : 0;
+            forceFieldSr.sortingOrder = baseOrder + 3;
+        }
+        forceFieldObj.SetActive(false);
+    }
+
+    private void EnsureShipOutlineVisuals()
+    {
+        if (shipOutlineRoot != null) return;
+
+        Transform existing = transform.Find("ShipOutline");
+        if (existing != null)
+        {
+            Destroy(existing.gameObject);
+        }
+
+        shipOutlineRoot = new GameObject("ShipOutline");
+        shipOutlineRoot.transform.SetParent(transform, false);
+        shipOutlineRoot.transform.localPosition = Vector3.zero;
+        shipOutlineRoot.transform.localRotation = Quaternion.identity;
+        shipOutlineRoot.transform.localScale = Vector3.one;
+
+        if (shipSpriteRenderer == null) shipSpriteRenderer = GetComponent<SpriteRenderer>();
+        int baseOrder = shipSpriteRenderer != null ? shipSpriteRenderer.sortingOrder : 0;
+        Material mat = shipSpriteRenderer != null ? shipSpriteRenderer.sharedMaterial : null;
+        Sprite spr = shipSpriteRenderer != null ? shipSpriteRenderer.sprite : null;
+
+        // 8 direcciones para un contorno uniforme de ~2.8 píxeles en coordenadas del mundo
+        float shipScaleY = Mathf.Max(0.01f, baseShipScale.y);
+        float offset = 2.8f / shipScaleY; // en espacio local del Player
+        float diag = offset * 0.7071f;
+
+        Vector3[] offsets = new Vector3[]
+        {
+            new Vector3(0f, offset, 0f),
+            new Vector3(diag, diag, 0f),
+            new Vector3(offset, 0f, 0f),
+            new Vector3(diag, -diag, 0f),
+            new Vector3(0f, -offset, 0f),
+            new Vector3(-diag, -diag, 0f),
+            new Vector3(-offset, 0f, 0f),
+            new Vector3(-diag, diag, 0f)
+        };
+
+        outlineRenderers = new SpriteRenderer[offsets.Length];
+        for (int i = 0; i < offsets.Length; i++)
+        {
+            GameObject child = new GameObject("Outline_" + i);
+            child.transform.SetParent(shipOutlineRoot.transform, false);
+            child.transform.localPosition = offsets[i];
+            child.transform.localRotation = Quaternion.identity;
+            child.transform.localScale = Vector3.one;
+
+            SpriteRenderer sr = child.AddComponent<SpriteRenderer>();
+            sr.sprite = spr;
+            if (mat != null) sr.sharedMaterial = mat;
+            sr.color = new Color(1f, 1f, 1f, 0f); // Blanco puro
+            sr.sortingOrder = baseOrder - 1; // Directamente detrás del sprite del jugador
+            outlineRenderers[i] = sr;
+            child.SetActive(false);
+        }
+    }
+
+    private void EnsureHitboxDotVisuals()
+    {
+        if (hitboxDotObj != null) return;
+        Transform existing = transform.Find("HitboxDot");
+        if (existing != null)
+        {
+            hitboxDotObj = existing.gameObject;
+            hitboxDotSr = hitboxDotObj.GetComponent<SpriteRenderer>();
+        }
+        else
+        {
+            hitboxDotObj = new GameObject("HitboxDot");
+            hitboxDotObj.transform.SetParent(transform, false);
+            hitboxDotObj.transform.localPosition = Vector3.zero;
+            hitboxDotObj.transform.localScale = baseHitboxScale;
+
+            hitboxDotSr = hitboxDotObj.AddComponent<SpriteRenderer>();
+            hitboxDotSr.sprite = ChargeVisualUtils.GetHitboxDotSprite();
+            hitboxDotSr.color = new Color(1f, 1f, 1f, 0f);
+            int baseOrder = shipSpriteRenderer != null ? shipSpriteRenderer.sortingOrder : 0;
+            hitboxDotSr.sortingOrder = baseOrder + 12; // Encima de la nave
+        }
+        hitboxDotObj.SetActive(false);
+    }
+
+    private void EnsureShieldBarVisuals()
+    {
+        if (shieldBarCanvasTransform != null && shieldBarFillImage != null && shieldBarBgImage != null) return;
+
+        Transform existing = transform.Find("ShieldBarCanvas");
+        if (existing != null)
+        {
+            Destroy(existing.gameObject);
+        }
+
+        GameObject canvasObj = new GameObject("ShieldBarCanvas", typeof(RectTransform), typeof(Canvas), typeof(CanvasGroup));
+        canvasObj.transform.SetParent(transform, false);
+        shieldBarCanvasTransform = canvasObj.transform;
+        shieldBarCanvasGroup = canvasObj.GetComponent<CanvasGroup>();
+        if (shieldBarCanvasGroup != null) shieldBarCanvasGroup.alpha = shieldBarAlpha;
+
+        Canvas c = canvasObj.GetComponent<Canvas>();
+        c.renderMode = RenderMode.WorldSpace;
+        if (mainCam == null) mainCam = Camera.main;
+        c.worldCamera = mainCam;
+        c.overrideSorting = true;
+        if (shipSpriteRenderer == null) shipSpriteRenderer = GetComponent<SpriteRenderer>();
+        int baseOrder = shipSpriteRenderer != null ? shipSpriteRenderer.sortingOrder : 0;
+        c.sortingOrder = baseOrder + 22;
+
+        RectTransform rt = canvasObj.GetComponent<RectTransform>();
+        rt.sizeDelta = new Vector2(140f, 24f);
+
+        // Ancho en el mundo: ~125 unidades (un poquito más grande que la nave para leer bien "SIN ESCUDOS")
+        float shipScaleY = Mathf.Max(0.01f, baseShipScale.y);
+        float worldWidthDesired = 125f;
+        float scaleFactor = worldWidthDesired / (140f * shipScaleY);
+        baseShieldBarCanvasScale = new Vector3(scaleFactor, scaleFactor, 1f);
+        rt.localScale = baseShieldBarCanvasScale;
+
+        // Posicionada directamente por debajo de la nave
+        float extY = (shipSpriteRenderer != null && shipSpriteRenderer.sprite != null) ? shipSpriteRenderer.sprite.bounds.extents.y : 0.5f;
+        baseShieldBarLocalPos = new Vector3(0f, -extY * 1.55f, 0f);
+        rt.localPosition = baseShieldBarLocalPos;
+
+        shieldBarRoot = ChargeVisualUtils.CreateShieldHealthBar(
+            canvasObj.transform,
+            Vector2.zero,
+            new Vector2(140f, 22f),
+            out shieldBarBgImage,
+            out shieldBarFillImage,
+            out shieldBarWarningText);
+    }
+
+    private void UpdateForceFieldAndShieldVisuals()
+    {
+        EnsureForceFieldVisuals();
+        EnsureShipOutlineVisuals();
+        EnsureHitboxDotVisuals();
+        EnsureShieldBarVisuals();
+
+        // 1. Detección de balas dentro del área del campo de fuerza (ForceFieldRadius = 125f)
+        bool inForceField = ((Time.time - lastBulletVeryCloseTime <= 0.12f) || (Time.time - lastThreatInSlowRadiusTime <= 0.12f)) && HasShield;
+
+        // 2. Escudo circular azul (aparece SOLO cuando las balas entran al campo de fuerza, se desvanece si se queda sin escudo)
+        float targetFieldAlpha = inForceField ? 0.95f : 0f;
+        forceFieldAlpha = Mathf.MoveTowards(forceFieldAlpha, targetFieldAlpha, Time.deltaTime * 7.5f);
+
+        if (forceFieldObj != null && forceFieldSr != null)
+        {
+            if (forceFieldAlpha > 0.005f)
+            {
+                if (!forceFieldObj.activeSelf) forceFieldObj.SetActive(true);
+                float pulse = 0.86f + 0.14f * Mathf.Sin(Time.time * 16f);
+                forceFieldSr.color = new Color(0.25f, 0.85f, 1.0f, forceFieldAlpha * pulse);
+                forceFieldObj.transform.localRotation = Quaternion.Euler(0f, 0f, Time.time * 55f);
+            }
+            else if (forceFieldObj.activeSelf)
+            {
+                forceFieldObj.SetActive(false);
+            }
+        }
+
+        // 3. Contorno blanco alrededor de la nave y nave ligeramente grisácea (cuando las balas entran al campo de fuerza)
+        float targetOutlineAlpha = inForceField ? 1.0f : 0.0f;
+        outlineAlpha = Mathf.MoveTowards(outlineAlpha, targetOutlineAlpha, Time.deltaTime * 6.5f);
+
+        if (outlineRenderers != null)
+        {
+            Color outCol = new Color(1f, 1f, 1f, outlineAlpha);
+            for (int i = 0; i < outlineRenderers.Length; i++)
+            {
+                if (outlineRenderers[i] != null)
+                {
+                    if (outlineAlpha > 0.005f)
+                    {
+                        if (!outlineRenderers[i].gameObject.activeSelf) outlineRenderers[i].gameObject.SetActive(true);
+                        outlineRenderers[i].color = outCol;
+                        if (shipSpriteRenderer != null && outlineRenderers[i].sprite != shipSpriteRenderer.sprite)
+                        {
+                            outlineRenderers[i].sprite = shipSpriteRenderer.sprite;
+                        }
+                    }
+                    else if (outlineRenderers[i].gameObject.activeSelf)
+                    {
+                        outlineRenderers[i].gameObject.SetActive(false);
+                    }
+                }
+            }
+        }
+
+        if (invulnerabilityTimer <= 0f && shipSpriteRenderer != null)
+        {
+            Color baseCol = GetBaseShipColor();
+            Color grayTone = new Color(0.68f, 0.70f, 0.74f, 1f);
+            shipSpriteRenderer.color = Color.Lerp(baseCol, grayTone, outlineAlpha * 0.82f);
+        }
+
+        // 4. Hitbox circular blanca dentro de la nave:
+        float targetHitboxAlpha = inForceField ? 1.0f : 0.0f;
+        hitboxDotAlpha = Mathf.MoveTowards(hitboxDotAlpha, targetHitboxAlpha, Time.deltaTime * 3.5f);
+
+        if (hitboxDotObj != null && hitboxDotSr != null)
+        {
+            if (hitboxDotAlpha > 0.005f)
+            {
+                if (!hitboxDotObj.activeSelf) hitboxDotObj.SetActive(true);
+                hitboxDotSr.color = new Color(1f, 1f, 1f, hitboxDotAlpha);
+            }
+            else if (hitboxDotObj.activeSelf)
+            {
+                hitboxDotObj.SetActive(false);
+            }
+        }
+
+        // 5. Barra de vida del escudo (fondo gris ligeramente oscuro, relleno celeste)
+        displayedShieldCapacity = Mathf.MoveTowards(displayedShieldCapacity, currentShieldCapacity, Time.deltaTime * 90f);
+        float fillPct = Mathf.Clamp01(displayedShieldCapacity / maxShieldCapacity);
+
+        if (shieldBarFillImage != null)
+        {
+            shieldBarFillImage.fillAmount = fillPct;
+        }
+
+        // 6. Al quedarse sin escudo: "SIN ESCUDOS" titila entre rojo y amarillo 5 veces en 5 segundos,
+        // y luego se desvanece por completo el cartel del escudo
+        if (!HasShield)
+        {
+            if (shieldBarWarningText != null && !shieldBarWarningText.gameObject.activeSelf)
+            {
+                shieldBarWarningText.gameObject.SetActive(true);
+            }
+
+            if (depletedWarningTimer > 0f)
+            {
+                depletedWarningTimer -= Time.deltaTime;
+                // Titila entre rojo y amarillo unas 5 veces durante 5 segundos (1 ciclo por segundo)
+                float elapsed = 5.0f - depletedWarningTimer;
+                float blinkPhase = Mathf.Sin(elapsed * Mathf.PI * 2f);
+                if (shieldBarWarningText != null)
+                {
+                    shieldBarWarningText.color = blinkPhase > 0f
+                        ? new Color(1f, 0.90f, 0.05f, 1f)  // Amarillo brillante
+                        : new Color(1f, 0.20f, 0.20f, 1f);  // Rojo brillante
+                }
+                shieldBarAlpha = 1.0f;
+            }
+            else
+            {
+                // Pasados los 5 segundos de titileo, se desvanece suavemente el cartel del escudo
+                shieldBarAlpha = Mathf.MoveTowards(shieldBarAlpha, 0f, Time.deltaTime * 1.6f);
+            }
+        }
+        else
+        {
+            depletedWarningTimer = 0f;
+            shieldBarAlpha = 1.0f;
+            if (shieldBarWarningText != null && shieldBarWarningText.gameObject.activeSelf)
+            {
+                shieldBarWarningText.gameObject.SetActive(false);
+            }
+            if (shieldBarBgImage != null)
+            {
+                shieldBarBgImage.color = new Color(0.24f, 0.26f, 0.30f, 0.95f);
+            }
+        }
+
+        // Aplicar opacidad general al cartel del escudo (CanvasGroup)
+        if (shieldBarCanvasGroup != null)
+        {
+            shieldBarCanvasGroup.alpha = shieldBarAlpha;
+        }
+        if (shieldBarCanvasTransform != null)
+        {
+            if (shieldBarAlpha <= 0.001f && shieldBarCanvasTransform.gameObject.activeSelf)
+            {
+                shieldBarCanvasTransform.gameObject.SetActive(false);
+            }
+            else if (shieldBarAlpha > 0.001f && !shieldBarCanvasTransform.gameObject.activeSelf)
+            {
+                shieldBarCanvasTransform.gameObject.SetActive(true);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Intenta absorber daño con el campo de fuerza (capacidad de 100 unidades).
+    /// - Bala normal: 10 de capacidad.
+    /// - Bala grande: 25 de capacidad.
+    /// - Láseres: 20 de capacidad.
+    /// Devuelve true si el impacto fue absorbido por el escudo, false si el escudo está agotado.
+    /// </summary>
+    public bool TakeShieldDamage(float amount)
+    {
+        if (invulnerabilityTimer > 0f) return true; // En invulnerabilidad previa no se reduce salud ni escudo
+        if (!HasShield) return false; // Escudo agotado, el daño impacta la salud de la nave
+
+        bool wasShieldActive = HasShield;
+        currentShieldCapacity = Mathf.Max(0f, currentShieldCapacity - amount);
+
+        if (wasShieldActive && !HasShield)
+        {
+            // El jugador se quedó sin escudo: parpadeo rojo/amarillo durante 5 segundos y luego se desvanece
+            depletedWarningTimer = 5.0f;
+            shieldBarAlpha = 1.0f;
+        }
+        else
+        {
+            // Destello del contorno blanco y escudo circular al absorber impacto
+            outlineAlpha = 1.0f;
+            forceFieldAlpha = 1.0f;
+        }
+
+        if (SoundController.HasInstance)
+        {
+            SoundController.Instance.PlayPlayerHitSfx();
+        }
+
+        return true;
+    }
+
+    public void RestoreShield()
+    {
+        currentShieldCapacity = maxShieldCapacity;
+        displayedShieldCapacity = maxShieldCapacity;
+        depletedWarningTimer = 0f;
+        shieldBarAlpha = 1.0f;
+        if (shieldBarCanvasGroup != null) shieldBarCanvasGroup.alpha = 1.0f;
+        if (shieldBarCanvasTransform != null && !shieldBarCanvasTransform.gameObject.activeSelf)
+        {
+            shieldBarCanvasTransform.gameObject.SetActive(true);
+        }
+        if (shieldBarFillImage != null) shieldBarFillImage.fillAmount = 1f;
+        if (shieldBarWarningText != null && shieldBarWarningText.gameObject.activeSelf)
+        {
+            shieldBarWarningText.gameObject.SetActive(false);
+        }
+        if (shieldBarBgImage != null)
+        {
+            shieldBarBgImage.color = new Color(0.24f, 0.26f, 0.30f, 0.95f);
+        }
+    }
+
     void Update()
     {
         CheckInsertCheatKey();
 
         if (Time.timeScale == 0f) return;
 
-        HandleInvulnerabilityVisuals();
+        // 1. Controles prioritarios (Movimiento, Disparo y Cambio de Arma)
         HandleMovement();
         HandleShooting();
+        HandleInvulnerabilityVisuals();
+
+        // 2. Efectos visuales de contorno y barra de escudo protegidos
+        try
+        {
+            UpdateForceFieldAndShieldVisuals();
+        }
+        catch (System.Exception ex)
+        {
+            Debug.LogError($"[ShieldVisuals Error] {ex.Message}");
+        }
     }
 
     private void CheckInsertCheatKey()
@@ -315,14 +796,18 @@ public class PlayerController : MonoBehaviour
     }
 
     /// <summary>
-    /// Castiga al jugador si permanece 2 segundos continuos en la zona superior muerta de la pantalla
-    /// lanzando una bala grande de Tier 3 horizontalmente de izquierda a derecha a gran velocidad.
+    /// Castiga al jugador si permanece en la zona superior muerta de la pantalla:
+    /// - Tarda 1.0s continuo (1 segundo menos que antes) en disparar la primera bala punitiva.
+    /// - Mientras siga arriba, dispara ráfagas cada 0.60s (40% más rápido de cadencia).
+    /// - La bala viaja horizontalmente a un 40% más de velocidad.
     /// </summary>
     private void HandleTopCampPunishment()
     {
         if (currentHealth <= 0)
         {
             topCampTimer = 0f;
+            topCampRepeatTimer = 0f;
+            hasSpawnedFirstCampBullet = false;
             return;
         }
 
@@ -331,6 +816,8 @@ public class PlayerController : MonoBehaviour
             GameManager.Instance.currentState != GameManager.GameState.BossFight)
         {
             topCampTimer = 0f;
+            topCampRepeatTimer = 0f;
+            hasSpawnedFirstCampBullet = false;
             return;
         }
 
@@ -343,16 +830,31 @@ public class PlayerController : MonoBehaviour
 
         if (transform.position.y >= topCampThresholdY)
         {
-            topCampTimer += Time.deltaTime;
-            if (topCampTimer >= TopCampTriggerSeconds)
+            if (!hasSpawnedFirstCampBullet)
             {
-                topCampTimer = 0f;
-                SpawnTopCampPunishmentBullet(mainCam.transform.position.x, vertExtent);
+                topCampTimer += Time.deltaTime;
+                if (topCampTimer >= TopCampTriggerSeconds)
+                {
+                    hasSpawnedFirstCampBullet = true;
+                    topCampRepeatTimer = 0f;
+                    SpawnTopCampPunishmentBullet(mainCam.transform.position.x, vertExtent);
+                }
+            }
+            else
+            {
+                topCampRepeatTimer += Time.deltaTime;
+                if (topCampRepeatTimer >= TopCampRepeatCadence)
+                {
+                    topCampRepeatTimer = 0f;
+                    SpawnTopCampPunishmentBullet(mainCam.transform.position.x, vertExtent);
+                }
             }
         }
         else
         {
             topCampTimer = 0f;
+            topCampRepeatTimer = 0f;
+            hasSpawnedFirstCampBullet = false;
         }
     }
 
@@ -569,6 +1071,19 @@ public class PlayerController : MonoBehaviour
             chargeBarCanvasTransform.localScale = new Vector3(baseBarCanvasScale.x * invWidth, baseBarCanvasScale.y, baseBarCanvasScale.z);
         }
 
+        if (shieldBarCanvasTransform != null)
+        {
+            shieldBarCanvasTransform.localRotation = counterRot;
+            shieldBarCanvasTransform.localPosition = counterRot * baseShieldBarLocalPos;
+            shieldBarCanvasTransform.localScale = new Vector3(baseShieldBarCanvasScale.x * invWidth, baseShieldBarCanvasScale.y, baseShieldBarCanvasScale.z);
+        }
+
+        if (hitboxDotObj != null)
+        {
+            hitboxDotObj.transform.localRotation = counterRot;
+            hitboxDotObj.transform.localScale = new Vector3(baseHitboxScale.x * invWidth, baseHitboxScale.y, baseHitboxScale.z);
+        }
+
         if (badgeTransform != null)
         {
             badgeTransform.localRotation = counterRot;
@@ -589,15 +1104,40 @@ public class PlayerController : MonoBehaviour
             {
                 toggleModePressed = true;
             }
-            if (UnityEngine.InputSystem.Keyboard.current != null && (UnityEngine.InputSystem.Keyboard.current.qKey.wasPressedThisFrame || UnityEngine.InputSystem.Keyboard.current.eKey.wasPressedThisFrame))
+            // Tecla X (o teclas Q/E por compatibilidad) para cambiar de modo de arma
+            if (UnityEngine.InputSystem.Keyboard.current != null &&
+                (UnityEngine.InputSystem.Keyboard.current.xKey.wasPressedThisFrame ||
+                 UnityEngine.InputSystem.Keyboard.current.qKey.wasPressedThisFrame ||
+                 UnityEngine.InputSystem.Keyboard.current.eKey.wasPressedThisFrame))
             {
                 toggleModePressed = true;
             }
+            try
+            {
+                if (Input.GetKeyDown(KeyCode.X))
+                {
+                    toggleModePressed = true;
+                }
+            }
+            catch { }
 
-            if (UnityEngine.InputSystem.Keyboard.current != null && UnityEngine.InputSystem.Keyboard.current.spaceKey.isPressed)
+            // Tecla Z (o Barra espaciadora / Clic izquierdo) para disparar
+            // En Modo Normal permite dejar presionada la tecla Z y disparar automáticamente ráfagas continuas
+            if (UnityEngine.InputSystem.Keyboard.current != null &&
+                (UnityEngine.InputSystem.Keyboard.current.zKey.isPressed ||
+                 UnityEngine.InputSystem.Keyboard.current.spaceKey.isPressed))
             {
                 isHoldingFire = true;
             }
+            try
+            {
+                if (Input.GetKey(KeyCode.Z) || Input.GetKey(KeyCode.Space))
+                {
+                    isHoldingFire = true;
+                }
+            }
+            catch { }
+
             if (UnityEngine.InputSystem.Mouse.current != null && UnityEngine.InputSystem.Mouse.current.leftButton.isPressed)
             {
                 isHoldingFire = true;
@@ -790,6 +1330,7 @@ public class PlayerController : MonoBehaviour
 
     void OnDisable()
     {
+        ActivePlayers.Remove(this);
         if (SoundController.HasInstance)
         {
             SoundController.Instance.StopChargeSound();
@@ -797,6 +1338,8 @@ public class PlayerController : MonoBehaviour
         isFullyCharged = false;
         currentChargeTime = 0f;
         topCampTimer = 0f;
+        topCampRepeatTimer = 0f;
+        hasSpawnedFirstCampBullet = false;
         ClearInvulnerability();
         UpdateChargeVisuals(false, 0f, false);
     }
@@ -1000,6 +1543,7 @@ public class PlayerController : MonoBehaviour
 
         ApplyShipVisuals();
         ActivateInvulnerability(invulnerabilitySeconds);
+        RestoreShield();
 
         if (GameManager.Instance != null)
         {
@@ -1034,6 +1578,7 @@ public class PlayerController : MonoBehaviour
     public void IncreaseSpeed(float amount)
     {
         moveSpeed += amount;
+        Debug.Log($"[PlayerController {playerIndex}] Velocidad aumentada +{amount}. Nueva velocidad: {moveSpeed}");
     }
 
     public void IncreaseMaxHealth(int amount)
@@ -1053,7 +1598,8 @@ public class PlayerController : MonoBehaviour
 }
 
 /// <summary>
-/// Utilidades visuales compartidas para el círculo energético de carga y la barra radial circular.
+/// Utilidades visuales compartidas para el círculo energético de carga, barra radial, campo de fuerza azul,
+/// circulito de hitbox y barra de vida de escudo.
 /// </summary>
 public static class ChargeVisualUtils
 {
@@ -1061,6 +1607,189 @@ public static class ChargeVisualUtils
     private static Sprite s_RadialRingSprite;
     private static Sprite s_PlasmaStreakSprite;
     private static Sprite s_EnergyVortexSprite;
+    private static Sprite s_ForceFieldAuraSprite;
+    private static Sprite s_HitboxDotSprite;
+    private static Sprite s_SolidWhiteSprite;
+
+    public static Sprite GetHitboxDotSprite()
+    {
+        if (s_HitboxDotSprite == null)
+        {
+            const int size = 64;
+            Texture2D tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
+            Color[] pixels = new Color[size * size];
+            float c = size * 0.5f;
+            float r = size * 0.44f;
+
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    float dist = Vector2.Distance(new Vector2(x + 0.5f, y + 0.5f), new Vector2(c, c));
+                    if (dist > r)
+                    {
+                        pixels[y * size + x] = Color.clear;
+                    }
+                    else
+                    {
+                        // Núcleo blanco sólido con antialiasing sutil en el borde exterior
+                        float norm = dist / r;
+                        float alpha = norm < 0.72f ? 1f : Mathf.Clamp01(1f - ((norm - 0.72f) / 0.28f));
+                        pixels[y * size + x] = new Color(1f, 1f, 1f, alpha);
+                    }
+                }
+            }
+
+            tex.SetPixels(pixels);
+            tex.Apply();
+            s_HitboxDotSprite = Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f));
+        }
+        return s_HitboxDotSprite;
+    }
+
+    public static Sprite GetSolidWhiteSprite()
+    {
+        if (s_SolidWhiteSprite == null)
+        {
+            Texture2D tex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+            Color[] pix = new Color[] { Color.white, Color.white, Color.white, Color.white };
+            tex.SetPixels(pix);
+            tex.Apply();
+            s_SolidWhiteSprite = Sprite.Create(tex, new Rect(0, 0, 2, 2), new Vector2(0.5f, 0.5f));
+        }
+        return s_SolidWhiteSprite;
+    }
+
+    public static GameObject CreateShieldHealthBar(
+        Transform parent,
+        Vector2 anchoredPos,
+        Vector2 size,
+        out Image bgImage,
+        out Image fillImage,
+        out TextMeshProUGUI warningText)
+    {
+        GameObject root = new GameObject("ShieldBarTrack", typeof(RectTransform));
+        root.transform.SetParent(parent, false);
+        RectTransform rt = root.GetComponent<RectTransform>();
+        rt.anchorMin = new Vector2(0.5f, 0.5f);
+        rt.anchorMax = new Vector2(0.5f, 0.5f);
+        rt.pivot = new Vector2(0.5f, 0.5f);
+        rt.anchoredPosition = anchoredPos;
+        rt.sizeDelta = size;
+
+        Sprite solidSprite = GetSolidWhiteSprite();
+
+        // 1. Marco exterior oscuro para máximo contraste
+        GameObject frameObj = new GameObject("Frame", typeof(RectTransform));
+        frameObj.transform.SetParent(root.transform, false);
+        RectTransform frameRt = frameObj.GetComponent<RectTransform>();
+        frameRt.anchorMin = Vector2.zero;
+        frameRt.anchorMax = Vector2.one;
+        frameRt.offsetMin = new Vector2(-1.5f, -1.5f);
+        frameRt.offsetMax = new Vector2(1.5f, 1.5f);
+        Image frameImg = frameObj.AddComponent<Image>();
+        frameImg.sprite = solidSprite;
+        frameImg.color = new Color(0.08f, 0.09f, 0.11f, 0.98f);
+        frameImg.raycastTarget = false;
+        frameObj.transform.SetAsFirstSibling();
+
+        // 2. Fondo gris ligeramente oscuro de la barra (visible a medida que baja el escudo)
+        bgImage = root.AddComponent<Image>();
+        bgImage.sprite = solidSprite;
+        bgImage.color = new Color(0.24f, 0.26f, 0.30f, 0.95f); // Gris ligeramente oscuro
+        bgImage.raycastTarget = false;
+
+        // 3. Barra celeste claro del escudo (se va vaciando hacia la izquierda)
+        GameObject fillObj = new GameObject("Fill", typeof(RectTransform));
+        fillObj.transform.SetParent(root.transform, false);
+        RectTransform fillRt = fillObj.GetComponent<RectTransform>();
+        fillRt.anchorMin = Vector2.zero;
+        fillRt.anchorMax = Vector2.one;
+        fillRt.offsetMin = Vector2.zero;
+        fillRt.offsetMax = Vector2.zero;
+        fillImage = fillObj.AddComponent<Image>();
+        fillImage.sprite = solidSprite;
+        fillImage.type = Image.Type.Filled;
+        fillImage.fillMethod = Image.FillMethod.Horizontal;
+        fillImage.fillOrigin = (int)Image.OriginHorizontal.Left;
+        fillImage.color = new Color(0.20f, 0.82f, 1.0f, 1.0f); // Celeste claro brillante
+        fillImage.fillAmount = 1f;
+        fillImage.raycastTarget = false;
+
+        // 4. Texto amarillo de advertencia "SIN ESCUDOS"
+        warningText = null;
+        try
+        {
+            GameObject textObj = new GameObject("WarningText", typeof(RectTransform));
+            textObj.transform.SetParent(root.transform, false);
+            RectTransform textRt = textObj.GetComponent<RectTransform>();
+            textRt.anchorMin = Vector2.zero;
+            textRt.anchorMax = Vector2.one;
+            textRt.offsetMin = Vector2.zero;
+            textRt.offsetMax = Vector2.zero;
+            warningText = textObj.AddComponent<TextMeshProUGUI>();
+            TMP_FontAsset font = Resources.Load<TMP_FontAsset>("Fonts & Materials/LiberationSans SDF");
+            if (font != null) warningText.font = font;
+            warningText.text = "SIN ESCUDOS";
+            warningText.alignment = TextAlignmentOptions.Center;
+            warningText.fontSize = 13.5f;
+            warningText.fontStyle = FontStyles.Bold;
+            warningText.color = new Color(1f, 0.90f, 0.05f, 1f); // Amarillo vibrante
+            warningText.raycastTarget = false;
+            warningText.gameObject.SetActive(false);
+        }
+        catch (System.Exception ex)
+        {
+            Debug.LogWarning($"[ShieldBar WarningText Init] {ex.Message}");
+        }
+
+        return root;
+    }
+
+    public static Sprite GetForceFieldAuraSprite()
+    {
+        if (s_ForceFieldAuraSprite == null)
+        {
+            const int size = 128;
+            Texture2D tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
+            Color[] pixels = new Color[size * size];
+            float c = size * 0.5f;
+            float r = size * 0.46f;
+            float innerR = size * 0.36f;
+
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    float dist = Vector2.Distance(new Vector2(x + 0.5f, y + 0.5f), new Vector2(c, c));
+                    if (dist > r + 3f)
+                    {
+                        pixels[y * size + x] = Color.clear;
+                        continue;
+                    }
+
+                    // Borde exterior energético luminoso (anillo brillante)
+                    float rim = Mathf.Clamp01(1f - Mathf.Abs(dist - r) / 4.5f);
+                    rim = rim * rim;
+
+                    // Anillo armónico secundario interior
+                    float subRim = Mathf.Clamp01(1f - Mathf.Abs(dist - innerR) / 5f);
+                    subRim = subRim * subRim * 0.48f;
+
+                    // Núcleo suave semitransparente que envuelve el centro de la nave
+                    float core = dist < r ? Mathf.Clamp01(Mathf.Pow(1f - (dist / r), 1.8f) * 0.24f) : 0f;
+
+                    float totalA = Mathf.Clamp01(rim * 0.95f + subRim + core);
+                    pixels[y * size + x] = new Color(1f, 1f, 1f, totalA);
+                }
+            }
+
+            tex.SetPixels(pixels);
+            tex.Apply();
+            s_ForceFieldAuraSprite = Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f));
+        }
+        return s_ForceFieldAuraSprite;
+    }
 
     public static Sprite GetGlowCircleSprite()
     {

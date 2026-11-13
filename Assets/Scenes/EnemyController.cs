@@ -129,13 +129,16 @@ public class EnemyController : MonoBehaviour, IDamageable
             _ => 1
         };
 
+        // +8% de generación de balas para todos los enemigos (multiplica los tiempos de recarga por 1 / 1.08)
+        const float bulletRateBoost = 1f / 1.08f;
+
         if (tier == EnemyTier.Tier1)
         {
             aimsAtPlayer = Random.value < tier1AimChance;
             if (Mathf.Approximately(fireCadence, 1.275f) || Mathf.Approximately(fireCadence, 1.02f) || Mathf.Approximately(fireCadence, 1f) || Mathf.Approximately(fireCadence, 2.17f))
-                fireCadence = 2.875f; // -15% adicional de generación de balas (2.50s * 1.15)
+                fireCadence = 2.875f * bulletRateBoost; // +8% generación de balas
             else
-                fireCadence *= 1.3225f; // -15% acumulado dos veces (1.15 * 1.15)
+                fireCadence *= (1.3225f * bulletRateBoost);
 
             if (Mathf.Approximately(tier1BulletSpeed, 240f) || Mathf.Approximately(tier1BulletSpeed, 168f))
                 tier1BulletSpeed = 276f; // +15% velocidad bala (240 * 1.15)
@@ -144,21 +147,21 @@ public class EnemyController : MonoBehaviour, IDamageable
         {
             tier2AimsAtPlayer = Random.value < tier2AimChance;
             if (Mathf.Approximately(fireCadence, 1f))
-                fireCadence = 1.3225f; // -15% adicional de generación (1.15s * 1.15)
+                fireCadence = 1.3225f * bulletRateBoost; // +8% generación de balas
             else
-                fireCadence *= 1.3225f;
+                fireCadence *= (1.3225f * bulletRateBoost);
         }
         else if (tier == EnemyTier.Tier3)
         {
             tier3AimsAtPlayer = Random.value < tier3AimChance;
             if (Mathf.Approximately(fireCadence, 1f))
-                fireCadence = 1.3225f; // -15% adicional de generación (1.15s * 1.15)
+                fireCadence = 1.3225f * bulletRateBoost; // +8% generación de balas
             else
-                fireCadence *= 1.3225f;
+                fireCadence *= (1.3225f * bulletRateBoost);
         }
         else if (tier == EnemyTier.Tier4)
         {
-            laserCooldown *= 1.3225f; // -15% adicional en la frecuencia de disparo del láser
+            laserCooldown *= (1.3225f * bulletRateBoost); // +8% frecuencia de disparo del láser
             bool isBossFight = (GameManager.Instance != null && GameManager.Instance.IsInBossFight);
             float baseTier4Y = isBossFight ? 1380f : 1150f;
 
@@ -495,7 +498,7 @@ public class EnemyController : MonoBehaviour, IDamageable
             yield return new WaitForSeconds(fireCadence);
             FireBullet(bulletPrefab, 460f, GetAimDirection(tier2AimsAtPlayer));
             TriggerRecoil(0.75f);
-            yield return new WaitForSeconds(0.66125f); // -15% adicional de velocidad de generación (0.575s * 1.15)
+            yield return new WaitForSeconds(0.66125f / 1.08f); // +8% generación de balas
             FireBullet(bulletPrefab, 460f, GetAimDirection(tier2AimsAtPlayer));
             TriggerRecoil(0.75f);
         }
@@ -510,11 +513,11 @@ public class EnemyController : MonoBehaviour, IDamageable
             {
                 FireBullet(bulletPrefab, 460f, GetAimDirection(tier3AimsAtPlayer));
                 TriggerRecoil(0.7f);
-                yield return new WaitForSeconds(0.66125f); // -15% adicional de velocidad de generación (0.575s * 1.15)
+                yield return new WaitForSeconds(0.66125f / 1.08f); // +8% generación de balas
             }
 
             float chargeElapsed = 0f;
-            const float bigOrbWindup = 1.98375f; // -15% adicional de velocidad de generación (1.725s * 1.15)
+            const float bigOrbWindup = 1.98375f / 1.08f; // +8% generación de balas
             while (chargeElapsed < bigOrbWindup)
             {
                 chargeElapsed += Time.deltaTime;
@@ -659,6 +662,7 @@ public class EnemyController : MonoBehaviour, IDamageable
         GameObject obj = Instantiate(prefab, transform.position + (spawnOffset ?? Vector3.zero), Quaternion.Euler(0f, 0f, angle));
         if (obj.TryGetComponent<EnemyBullet>(out var eb))
         {
+            eb.isBigBullet = (prefab == bigBulletPrefab);
             eb.speed = speed;
             eb.direction = dir;
             eb.AlignRotationWithDirection();

@@ -194,6 +194,10 @@ public class GameManager : MonoBehaviour
             anyRevived = true;
         }
 
+        // Restaurar escudo al 100% para la siguiente oleada
+        if (player != null) player.RestoreShield();
+        if (player2 != null) player2.RestoreShield();
+
     }
 
     public static int GetConnectedGamepadCount()

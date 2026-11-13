@@ -19,6 +19,12 @@ public class EnemyBullet : MonoBehaviour
         homingTurnSpeed = turnSpeed;
     }
 
+    [Header("Tipo de proyectil")]
+    public bool isBigBullet = false;
+
+    [Header("Ralentización por Proximidad")]
+    private float currentSlowMultiplier = 1.0f;
+
     void Start()
     {
         Destroy(gameObject, lifeTime);
@@ -54,7 +60,35 @@ public class EnemyBullet : MonoBehaviour
             }
         }
 
-        transform.position += direction.normalized * speed * Time.deltaTime;
+        // Detección de proximidad con jugadores activos:
+        // Las balas enemigas SOLO se ralentizan (50%) cuando entran en el área del campo de fuerza
+        bool inForceFieldOfAnyPlayer = false;
+        var activePlayers = PlayerController.ActivePlayers;
+        if (activePlayers != null && activePlayers.Count > 0)
+        {
+            Vector3 myPos = transform.position;
+            float forceFieldRadiusSq = PlayerController.ForceFieldRadius * PlayerController.ForceFieldRadius;
+
+            for (int i = 0; i < activePlayers.Count; i++)
+            {
+                PlayerController p = activePlayers[i];
+                if (p != null && p.gameObject.activeInHierarchy && p.GetCurrentHealth() > 0 && p.HasShield)
+                {
+                    Vector3 hitboxPos = p.GetHitboxCenter();
+                    float distSq = (myPos - hitboxPos).sqrMagnitude;
+                    if (distSq <= forceFieldRadiusSq)
+                    {
+                        inForceFieldOfAnyPlayer = true;
+                        p.NotifyBulletInForceField();
+                    }
+                }
+            }
+        }
+
+        // Ralentiza la velocidad de las balas un 50% ÚNICAMENTE dentro del área del campo de fuerza
+        currentSlowMultiplier = inForceFieldOfAnyPlayer ? 0.50f : 1.0f;
+
+        transform.position += direction.normalized * (speed * currentSlowMultiplier) * Time.deltaTime;
     }
 
     void OnTriggerEnter2D(Collider2D other)
@@ -64,7 +98,7 @@ public class EnemyBullet : MonoBehaviour
         if (other.CompareTag("Player"))
         {
             PlayerController player = other.GetComponent<PlayerController>();
-            bool deflected = player != null && player.IsInvulnerable;
+            bool deflected = player != null && (player.IsInvulnerable || player.HasShield);
 
             Vector3 impactPos = other.ClosestPoint(transform.position);
             float bulletExtent = Mathf.Max(Mathf.Abs(transform.localScale.x), Mathf.Abs(transform.localScale.y));
@@ -74,7 +108,14 @@ public class EnemyBullet : MonoBehaviour
 
             if (player != null)
             {
-                player.TakeDamage(damage);
+                // El campo de fuerza tiene 100 de capacidad: bala normal saca 10, bala grande saca 25
+                bool isBig = isBigBullet || bulletExtent >= 40f;
+                float shieldCost = isBig ? 25f : 10f;
+                bool absorbedByShield = player.TakeShieldDamage(shieldCost);
+                if (!absorbedByShield)
+                {
+                    player.TakeDamage(damage);
+                }
             }
 
             Destroy(gameObject);

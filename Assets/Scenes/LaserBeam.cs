@@ -28,6 +28,30 @@ public class LaserBeam : MonoBehaviour
             if (aliveTimer >= activeDuration)
             {
                 Destroy(gameObject);
+                return;
+            }
+        }
+
+        // Proximidad del láser respecto al campo de fuerza del jugador
+        var activePlayers = PlayerController.ActivePlayers;
+        if (activePlayers != null && activePlayers.Count > 0)
+        {
+            Collider2D col = GetComponent<Collider2D>();
+            float forceFieldRadiusSq = PlayerController.ForceFieldRadius * PlayerController.ForceFieldRadius;
+
+            for (int i = 0; i < activePlayers.Count; i++)
+            {
+                PlayerController p = activePlayers[i];
+                if (p != null && p.gameObject.activeInHierarchy && p.GetCurrentHealth() > 0 && p.HasShield)
+                {
+                    Vector3 hitboxPos = p.GetHitboxCenter();
+                    Vector3 closestPt = col != null ? (Vector3)col.ClosestPoint(hitboxPos) : transform.position;
+                    float distSq = (hitboxPos - closestPt).sqrMagnitude;
+                    if (distSq <= forceFieldRadiusSq)
+                    {
+                        p.NotifyBulletInForceField();
+                    }
+                }
             }
         }
     }
@@ -52,8 +76,15 @@ public class LaserBeam : MonoBehaviour
         if (player != null)
         {
             Vector3 impactPos = other.ClosestPoint(transform.position);
-            EnemyExplosion.SpawnPlayerImpact(impactPos, player.IsInvulnerable, 1.15f);
-            player.TakeDamage(damage);
+            bool isDeflected = player.IsInvulnerable || player.HasShield;
+            EnemyExplosion.SpawnPlayerImpact(impactPos, isDeflected, 1.15f);
+
+            // Los láseres sacan 20 de capacidad de escudo
+            bool absorbedByShield = player.TakeShieldDamage(20f);
+            if (!absorbedByShield)
+            {
+                player.TakeDamage(damage);
+            }
             nextDamageTime = Time.time + damageTickInterval;
         }
     }

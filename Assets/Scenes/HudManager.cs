@@ -215,8 +215,25 @@ public class HUDManager : MonoBehaviour
             waveText.text = $"<color=#38BDF8><b>{text}</b></color>";
     }
 
+    private bool isTimerHiddenForUpgrade = false;
+
+    public void HideTimerForUpgrade(bool hide)
+    {
+        isTimerHiddenForUpgrade = hide;
+        if (timerText != null)
+        {
+            timerText.gameObject.SetActive(!hide && (!isBossBarActive || isBossDefeated));
+        }
+    }
+
     public void UpdateTimer(float secondsRemaining)
     {
+        if (isTimerHiddenForUpgrade)
+        {
+            if (timerText != null) timerText.gameObject.SetActive(false);
+            return;
+        }
+
         if (timerText != null)
         {
             // Si la barra del jefe está activa, despejar el texto del cronómetro para evitar solapamientos

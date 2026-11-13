@@ -76,8 +76,10 @@ public class BossController : MonoBehaviour, IDamageable
         if (GameManager.Instance != null && GameManager.Instance.IsPlayer2Joined)
             maxHealth = Mathf.Max(1, Mathf.RoundToInt(maxHealth * 1.9f));
 
-        smallBulletCadence *= 1.3225f; // -15% adicional de generación de balas (1.15 * 1.15)
-        bigBulletCadence *= 1.3225f;   // -15% adicional de generación de balas (1.15 * 1.15)
+        // +8% de generación de balas para todos los enemigos (multiplica los tiempos de recarga por 1 / 1.08)
+        const float bulletRateBoost = 1f / 1.08f;
+        smallBulletCadence *= (1.3225f * bulletRateBoost);
+        bigBulletCadence *= (1.3225f * bulletRateBoost);
         if (Mathf.Approximately(smallBulletSpeed, 400f) || Mathf.Approximately(smallBulletSpeed, 280f)) smallBulletSpeed = 460f;
 
         currentHealth = maxHealth;
@@ -314,6 +316,7 @@ public class BossController : MonoBehaviour, IDamageable
 
         if (obj.TryGetComponent<EnemyBullet>(out var eb))
         {
+            eb.isBigBullet = (prefab == bigBulletPrefab);
             eb.speed = speed;
             eb.direction = dir;
             if (lifetime.HasValue) eb.lifeTime = lifetime.Value;
@@ -510,7 +513,11 @@ public class BossController : MonoBehaviour, IDamageable
         if (Time.timeScale == 0f || !other.CompareTag("Player") || Time.time < nextContactTime) return;
         if (other.TryGetComponent<PlayerController>(out var player))
         {
-            player.TakeDamage(contactDamage);
+            bool absorbed = player.TakeShieldDamage(25f);
+            if (!absorbed)
+            {
+                player.TakeDamage(contactDamage);
+            }
             nextContactTime = Time.time + contactCooldown;
         }
     }
