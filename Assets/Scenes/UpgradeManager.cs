@@ -68,6 +68,10 @@ public class UpgradeManager : MonoBehaviour
     private TextMeshProUGUI micPromptTmp;
     private TextMeshProUGUI micDeviceTmp;
 
+    // Código de atajo (Cheat) para saltar la barra de audio y continuar: 7, 8, 9, 4, 5, 6, 1, 2, 3
+    private static readonly int[] CheatSkipSequence = { 7, 8, 9, 4, 5, 6, 1, 2, 3 };
+    private int currentCheatIndex = 0;
+
     private static Sprite s_CardBgSprite;
     private static Sprite s_DamageDefaultIcon;
     private static Sprite s_HealthDefaultIcon;
@@ -87,6 +91,7 @@ public class UpgradeManager : MonoBehaviour
         transform.SetAsLastSibling();
         hasContinued = false;
         screamUnlocked = false;
+        currentCheatIndex = 0;
         wasCoopOnOpen = GameManager.Instance != null && GameManager.Instance.IsPlayer2Joined;
 
         // Ocultar cualquier texto o cronómetro residual del HUD durante la pantalla de mejoras
@@ -117,6 +122,7 @@ public class UpgradeManager : MonoBehaviour
 
     void OnDisable()
     {
+        currentCheatIndex = 0;
         screamSession.Stop();
         if (continueRect != null) continueRect.anchoredPosition = new Vector2(0f, -262f);
 
@@ -133,6 +139,9 @@ public class UpgradeManager : MonoBehaviour
 
     void Update()
     {
+        if (hasContinued) return;
+
+        CheckSkipCheatCode();
         if (hasContinued) return;
 
         float rawDt = Time.unscaledDeltaTime;
@@ -156,6 +165,63 @@ public class UpgradeManager : MonoBehaviour
         }
 
         RefreshScreamGateUI();
+    }
+
+    private void CheckSkipCheatCode()
+    {
+        int digit = GetPressedDigit();
+        if (digit == -1) return;
+
+        if (digit == CheatSkipSequence[currentCheatIndex])
+        {
+            currentCheatIndex++;
+            if (currentCheatIndex >= CheatSkipSequence.Length)
+            {
+                currentCheatIndex = 0;
+                Debug.Log("<color=#00FF88><b>[CHEAT]</b> Secuencia 7-8-9-4-5-6-1-2-3 detectada. Ignorando barra de audio y avanzando a la siguiente oleada...</color>");
+                screamUnlocked = true;
+                TriggerContinue();
+            }
+        }
+        else
+        {
+            currentCheatIndex = (digit == CheatSkipSequence[0]) ? 1 : 0;
+        }
+    }
+
+    private int GetPressedDigit()
+    {
+        var kb = UnityEngine.InputSystem.Keyboard.current;
+        if (kb != null)
+        {
+            if (kb.digit7Key.wasPressedThisFrame || kb.numpad7Key.wasPressedThisFrame) return 7;
+            if (kb.digit8Key.wasPressedThisFrame || kb.numpad8Key.wasPressedThisFrame) return 8;
+            if (kb.digit9Key.wasPressedThisFrame || kb.numpad9Key.wasPressedThisFrame) return 9;
+            if (kb.digit4Key.wasPressedThisFrame || kb.numpad4Key.wasPressedThisFrame) return 4;
+            if (kb.digit5Key.wasPressedThisFrame || kb.numpad5Key.wasPressedThisFrame) return 5;
+            if (kb.digit6Key.wasPressedThisFrame || kb.numpad6Key.wasPressedThisFrame) return 6;
+            if (kb.digit1Key.wasPressedThisFrame || kb.numpad1Key.wasPressedThisFrame) return 1;
+            if (kb.digit2Key.wasPressedThisFrame || kb.numpad2Key.wasPressedThisFrame) return 2;
+            if (kb.digit3Key.wasPressedThisFrame || kb.numpad3Key.wasPressedThisFrame) return 3;
+            if (kb.digit0Key.wasPressedThisFrame || kb.numpad0Key.wasPressedThisFrame) return 0;
+        }
+
+        try
+        {
+            if (Input.GetKeyDown(KeyCode.Alpha7) || Input.GetKeyDown(KeyCode.Keypad7)) return 7;
+            if (Input.GetKeyDown(KeyCode.Alpha8) || Input.GetKeyDown(KeyCode.Keypad8)) return 8;
+            if (Input.GetKeyDown(KeyCode.Alpha9) || Input.GetKeyDown(KeyCode.Keypad9)) return 9;
+            if (Input.GetKeyDown(KeyCode.Alpha4) || Input.GetKeyDown(KeyCode.Keypad4)) return 4;
+            if (Input.GetKeyDown(KeyCode.Alpha5) || Input.GetKeyDown(KeyCode.Keypad5)) return 5;
+            if (Input.GetKeyDown(KeyCode.Alpha6) || Input.GetKeyDown(KeyCode.Keypad6)) return 6;
+            if (Input.GetKeyDown(KeyCode.Alpha1) || Input.GetKeyDown(KeyCode.Keypad1)) return 1;
+            if (Input.GetKeyDown(KeyCode.Alpha2) || Input.GetKeyDown(KeyCode.Keypad2)) return 2;
+            if (Input.GetKeyDown(KeyCode.Alpha3) || Input.GetKeyDown(KeyCode.Keypad3)) return 3;
+            if (Input.GetKeyDown(KeyCode.Alpha0) || Input.GetKeyDown(KeyCode.Keypad0)) return 0;
+        }
+        catch (System.InvalidOperationException) { }
+
+        return -1;
     }
 
     void Start()
