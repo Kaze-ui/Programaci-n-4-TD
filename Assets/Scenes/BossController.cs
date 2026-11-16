@@ -9,12 +9,12 @@ using System.Collections.Generic;
 public class BossController : MonoBehaviour, IDamageable
 {
     [Header("Vida")]
-    public int maxHealth = 250;
+    public int maxHealth = 500;
     private float currentHealth;
     private bool isDead = false;
 
     [Header("Movimiento")]
-    public float moveSpeed = 175f;
+    public float moveSpeed = 367.5f; // Triple de velocidad (122.5f * 3)
     public float targetY = 1100f;
     public float entrySpeed = 150f;
     private bool hasEntered = false;
@@ -28,15 +28,15 @@ public class BossController : MonoBehaviour, IDamageable
     public GameObject tier4Prefab;
 
     [Header("Parámetros de Proyectiles")]
-    public float smallBulletCadence = 1.02f;
+    public float smallBulletCadence = 0.51f; // -50% tiempo de generación de balas (doble de cadencia)
     public float smallBulletSpeed = 460f; // +15% velocidad de bala normal (400 * 1.15)
     public int smallBulletCount = 12;
-    public float bigBulletCadence = 1.0f;
+    public float bigBulletCadence = 0.5f; // -50% tiempo de generación de balas (doble de cadencia)
     public float bigBulletSpeed = 288f;
     public float bigBulletLifetime = 40f;
 
     [Header("Súper Láser")]
-    public float laserWarningDuration = 3f;
+    public float laserWarningDuration = 2f; // -1/3 de duración (3s * 2/3 = 2s)
     public float laserActiveDuration = 3f;
     public float laserWidth = 150f;
     public float laserLength = 3500f;
@@ -73,13 +73,18 @@ public class BossController : MonoBehaviour, IDamageable
 
     void Start()
     {
+        if (maxHealth <= 250) maxHealth = 500;
+        if (Mathf.Approximately(moveSpeed, 175f) || Mathf.Approximately(moveSpeed, 122.5f)) moveSpeed = 367.5f;
+
         if (GameManager.Instance != null && GameManager.Instance.IsPlayer2Joined)
             maxHealth = Mathf.Max(1, Mathf.RoundToInt(maxHealth * 1.9f));
 
         // +8% de generación de balas para todos los enemigos (multiplica los tiempos de recarga por 1 / 1.08)
+        // y -50% de reducción de tiempo de generación para el jefe (doble de producción de balas)
         const float bulletRateBoost = 1f / 1.08f;
-        smallBulletCadence *= (1.3225f * bulletRateBoost);
-        bigBulletCadence *= (1.3225f * bulletRateBoost);
+        smallBulletCadence *= (1.3225f * bulletRateBoost) * 0.5f;
+        bigBulletCadence *= (1.3225f * bulletRateBoost) * 0.5f;
+        laserWarningDuration = 2f; // -1/3 de duración de la marca previa (3s * 2/3 = 2s)
         if (Mathf.Approximately(smallBulletSpeed, 400f) || Mathf.Approximately(smallBulletSpeed, 280f)) smallBulletSpeed = 460f;
 
         currentHealth = maxHealth;
@@ -125,7 +130,7 @@ public class BossController : MonoBehaviour, IDamageable
         }
         else
         {
-            float baseSpeed = (playerController != null ? playerController.moveSpeed * 0.70f : moveSpeed);
+            float baseSpeed = moveSpeed; // Desacoplado: NO se incrementa cuando el jugador mejora su velocidad
             float rageMult = (currentHealth <= maxHealth * 0.5f) ? 1.32f : 1f;
             transform.position += Vector3.right * moveDirection * (baseSpeed * rageMult) * Time.deltaTime;
         }

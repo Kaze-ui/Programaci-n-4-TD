@@ -22,6 +22,23 @@ public class EnemyBullet : MonoBehaviour
     [Header("Tipo de proyectil")]
     public bool isBigBullet = false;
 
+    [Header("Explosión en Racimo (Tier 3)")]
+    private bool shouldExplodeCluster = false;
+    private GameObject clusterFragmentPrefab;
+    private float clusterExplodeDistance = 350f;
+    private float clusterFragmentSpeed = 350f;
+    private float startClusterY = 0f;
+    private bool hasExplodedCluster = false;
+
+    public void SetupClusterExplosion(GameObject fragmentPrefab, float explodeDistanceY, float fragmentSpeed = 350f)
+    {
+        shouldExplodeCluster = true;
+        clusterFragmentPrefab = fragmentPrefab;
+        clusterExplodeDistance = explodeDistanceY;
+        clusterFragmentSpeed = fragmentSpeed;
+        startClusterY = transform.position.y;
+    }
+
     [Header("Ralentización por Proximidad")]
     private float currentSlowMultiplier = 1.0f;
 
@@ -43,6 +60,16 @@ public class EnemyBullet : MonoBehaviour
     void Update()
     {
         if (Time.timeScale == 0f) return;
+
+        // Comprobación de detonación en racimo por distancia en eje Y (Tier 3)
+        if (shouldExplodeCluster && !hasExplodedCluster)
+        {
+            if (Mathf.Abs(startClusterY - transform.position.y) >= clusterExplodeDistance)
+            {
+                ExplodeIntoCluster();
+                return;
+            }
+        }
 
         if (isHoming)
         {
@@ -109,7 +136,7 @@ public class EnemyBullet : MonoBehaviour
             if (player != null)
             {
                 // El campo de fuerza tiene 100 de capacidad: bala normal saca 10, bala grande saca 25
-                bool isBig = isBigBullet || bulletExtent >= 40f;
+                bool isBig = isBigBullet || bulletExtent >= 150f;
                 float shieldCost = isBig ? 25f : 10f;
                 bool absorbedByShield = player.TakeShieldDamage(shieldCost);
                 if (!absorbedByShield)
@@ -120,5 +147,48 @@ public class EnemyBullet : MonoBehaviour
 
             Destroy(gameObject);
         }
+    }
+
+    private void ExplodeIntoCluster()
+    {
+        hasExplodedCluster = true;
+        Vector3 spawnPos = transform.position;
+
+        Material mat = TryGetComponent<SpriteRenderer>(out var sr) ? sr.sharedMaterial : null;
+        EnemyExplosion.Spawn(spawnPos, EnemyTier.Tier3, transform.localScale * 0.9f, mat);
+        SoundController.Instance?.PlayEnemyDeathSfx();
+
+        if (clusterFragmentPrefab != null)
+        {
+            // 20 proyectiles:
+            // - 4 en los extremos de la cruz horizontal y vertical: 0° (Derecha), 90° (Arriba), 180° (Izquierda), 270° (Abajo)
+            // - 4 por cada cara / cuadrante de la circunferencia (16 adicionales):
+            //   Cuadrante 1 (arriba-derecha): 18°, 36°, 54°, 72°
+            //   Cuadrante 2 (arriba-izquierda): 108°, 126°, 144°, 162°
+            //   Cuadrante 3 (abajo-izquierda): 198°, 216°, 234°, 252°
+            //   Cuadrante 4 (abajo-derecha): 288°, 306°, 324°, 342°
+            // En total 20 proyectiles con separación uniforme exacta de 360° / 20 = 18°
+            const int totalBullets = 20;
+            const float angleStep = 360f / totalBullets; // 18 grados
+
+            for (int i = 0; i < totalBullets; i++)
+            {
+                float angleDeg = i * angleStep;
+                float angleRad = angleDeg * Mathf.Deg2Rad;
+                Vector3 bulletDir = new Vector3(Mathf.Cos(angleRad), Mathf.Sin(angleRad), 0f).normalized;
+
+                float rotZ = angleDeg + 90f;
+                GameObject fragment = Instantiate(clusterFragmentPrefab, spawnPos, Quaternion.Euler(0f, 0f, rotZ));
+                if (fragment.TryGetComponent<EnemyBullet>(out var eb))
+                {
+                    eb.isBigBullet = false;
+                    eb.speed = clusterFragmentSpeed;
+                    eb.direction = bulletDir;
+                    eb.AlignRotationWithDirection();
+                }
+            }
+        }
+
+        Destroy(gameObject);
     }
 }

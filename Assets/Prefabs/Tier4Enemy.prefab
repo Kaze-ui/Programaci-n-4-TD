@@ -198,7 +198,7 @@ MonoBehaviour:
   laserPrefab: {fileID: 1433648432647939853, guid: 0aa2282bfd8b5394f90e54adffd05761, type: 3}
   telegraphPrefab: {fileID: 3901847192837461920, guid: d71a8f3b49e211efa8210242ac120002, type: 3}
   laserCooldown: 4
-  laserTelegraphDuration: 2.5
+  laserTelegraphDuration: 1.6666666
   laserBeamLength: 5250
   laserBeamWidth: 60
   laserTelegraphWidth: 25

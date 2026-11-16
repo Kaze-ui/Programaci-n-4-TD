@@ -22,8 +22,8 @@ public class HUDManager : MonoBehaviour
     // --- MÍTICA BARRA DE VIDA DEL JEFE ---
     private bool isBossBarActive = false;
     private string bossName = "Leviatán nodriza";
-    private float bossMaxHealth = 250f;
-    private float bossCurrentHealth = 250f;
+    private float bossMaxHealth = 500f;
+    private float bossCurrentHealth = 500f;
     private float bossDisplayFill = 0f;       // Fill de la barra animada
     private float bossTrailingFill = 0f;      // Barra fantasma amarilla que retiene el daño
     private float bossBarAlpha = 0f;          // Opacidad de entrada/salida

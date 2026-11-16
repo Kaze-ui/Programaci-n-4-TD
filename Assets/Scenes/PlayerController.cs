@@ -12,7 +12,7 @@ public class PlayerController : MonoBehaviour
 
     [Header("Modo Lento / Precisión")]
     public bool isSlowModeActive = false;
-    [Range(0f, 1f)] public float slowSpeedReduction = 0.45f; // 45% de reducción de velocidad
+    [Range(0f, 1f)] public float slowSpeedReduction = 0.55f; // 55% de reducción de velocidad (10% más lento en modo precisión)
     private bool prevLeftTriggerDown = false;
 
     public enum FireMode { Normal, HeavyCharged }
@@ -132,7 +132,7 @@ public class PlayerController : MonoBehaviour
         if (!ActivePlayers.Contains(this)) ActivePlayers.Add(this);
 
         if (Mathf.Approximately(fireRate, 0.3f) || Mathf.Approximately(fireRate, 0.25f)) fireRate = 0.217f;
-        if (Mathf.Approximately(slowSpeedReduction, 0.60f)) slowSpeedReduction = 0.45f;
+        if (Mathf.Approximately(slowSpeedReduction, 0.60f) || Mathf.Approximately(slowSpeedReduction, 0.45f)) slowSpeedReduction = 0.55f;
         if (Mathf.Approximately(chargeTimeRequired, 2.5f)) chargeTimeRequired = 2.2f;
         if (currentHealth <= 0) currentHealth = maxHealth;
         mainCam = Camera.main;

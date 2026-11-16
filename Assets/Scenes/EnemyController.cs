@@ -60,7 +60,7 @@ public class EnemyController : MonoBehaviour, IDamageable
     [Header("Láser y Señalización (Tier 4)")]
     public GameObject telegraphPrefab;
     public float laserCooldown = 4f;
-    public float laserTelegraphDuration = 2.5f;
+    public float laserTelegraphDuration = 1.667f; // -1/3 de duración (2.5s * 2/3 = 1.667s)
     public float laserBeamLength = 5250f;
     public float laserBeamWidth = 60f;
     public float laserTelegraphWidth = 25f;
@@ -135,21 +135,14 @@ public class EnemyController : MonoBehaviour, IDamageable
         if (tier == EnemyTier.Tier1)
         {
             aimsAtPlayer = Random.value < tier1AimChance;
-            if (Mathf.Approximately(fireCadence, 1.275f) || Mathf.Approximately(fireCadence, 1.02f) || Mathf.Approximately(fireCadence, 1f) || Mathf.Approximately(fireCadence, 2.17f))
-                fireCadence = 2.875f * bulletRateBoost; // +8% generación de balas
-            else
-                fireCadence *= (1.3225f * bulletRateBoost);
+            fireCadence = 1.0f; // 1 segundo entre ráfaga y ráfaga
 
             if (Mathf.Approximately(tier1BulletSpeed, 240f) || Mathf.Approximately(tier1BulletSpeed, 168f))
                 tier1BulletSpeed = 276f; // +15% velocidad bala (240 * 1.15)
         }
         else if (tier == EnemyTier.Tier2)
         {
-            tier2AimsAtPlayer = Random.value < tier2AimChance;
-            if (Mathf.Approximately(fireCadence, 1f))
-                fireCadence = 1.3225f * bulletRateBoost; // +8% generación de balas
-            else
-                fireCadence *= (1.3225f * bulletRateBoost);
+            fireCadence = 4f; // 4 segundos de delay entre ráfaga y ráfaga
         }
         else if (tier == EnemyTier.Tier3)
         {
@@ -161,6 +154,7 @@ public class EnemyController : MonoBehaviour, IDamageable
         }
         else if (tier == EnemyTier.Tier4)
         {
+            laserTelegraphDuration = 2.5f * (2f / 3f); // -1/3 de duración de la marca antes de disparar (1.667s)
             laserCooldown *= (1.3225f * bulletRateBoost); // +8% frecuencia de disparo del láser
             bool isBossFight = (GameManager.Instance != null && GameManager.Instance.IsInBossFight);
             float baseTier4Y = isBossFight ? 1380f : 1150f;
@@ -483,41 +477,98 @@ public class EnemyController : MonoBehaviour, IDamageable
 
     IEnumerator FireTier1()
     {
+        yield return new WaitForSeconds(0.6f); // Respiro inicial al posicionarse en pantalla
         while (true)
         {
-            yield return new WaitForSeconds(fireCadence);
-            FireBullet(bulletPrefab, tier1BulletSpeed, GetAimDirection(aimsAtPlayer));
-            TriggerRecoil(0.65f);
+            FireTier1TripleShot();
+            TriggerRecoil(0.35f);
+            yield return new WaitForSeconds(fireCadence); // 1 segundo exacto entre ráfaga y ráfaga
         }
+    }
+
+    private void FireTier1TripleShot()
+    {
+        if (bulletPrefab == null) return;
+
+        Vector3 baseDir;
+        if (Random.value < 0.60f)
+        {
+            // 60% de chance: hacia el jugador
+            baseDir = GetAimDirection(true);
+        }
+        else
+        {
+            // 40% de chance: hacia abajo de la pantalla, en una posición X dentro de los límites
+            float margin = 50f;
+            float minX = GetScreenMinX() + margin;
+            float maxX = GetScreenMaxX() - margin;
+            float targetX = (minX < maxX) ? Random.Range(minX, maxX) : ((minX + maxX) * 0.5f);
+            float targetY = (mainCam != null) ? (mainCam.transform.position.y - mainCam.orthographicSize) : (transform.position.y - 1200f);
+            baseDir = (new Vector3(targetX, targetY, 0f) - transform.position).normalized;
+        }
+
+        const float spreadAngle = 40f; // Dispersión aumentada de los proyectiles laterales (antes 22°)
+        Vector3 dirCenter = baseDir;
+        Vector3 dirLeft = Quaternion.Euler(0f, 0f, -spreadAngle) * baseDir;
+        Vector3 dirRight = Quaternion.Euler(0f, 0f, spreadAngle) * baseDir;
+
+        FireBullet(bulletPrefab, tier1BulletSpeed, dirCenter);
+        FireBullet(bulletPrefab, tier1BulletSpeed, dirLeft);
+        FireBullet(bulletPrefab, tier1BulletSpeed, dirRight);
     }
 
     IEnumerator FireTier2()
     {
+        yield return new WaitForSeconds(1.0f); // Respiro inicial al posicionarse en pantalla
         while (true)
         {
-            yield return new WaitForSeconds(fireCadence);
-            FireBullet(bulletPrefab, 460f, GetAimDirection(tier2AimsAtPlayer));
-            TriggerRecoil(0.75f);
-            yield return new WaitForSeconds(0.66125f / 1.08f); // +8% generación de balas
-            FireBullet(bulletPrefab, 460f, GetAimDirection(tier2AimsAtPlayer));
-            TriggerRecoil(0.75f);
+            // Dispara ráfagas durante 4 segundos con cadencia de 0.100s (100ms) entre ráfagas
+            float fireTimer = 4.0f;
+            const float burstInterval = 0.100f;
+
+            while (fireTimer > 0f)
+            {
+                FireTier2SemicirclePulse();
+                TriggerRecoil(0.35f);
+                yield return new WaitForSeconds(burstInterval);
+                fireTimer -= burstInterval;
+            }
+
+            // Pausa de 3 segundos sin disparar
+            yield return new WaitForSeconds(3.0f);
+        }
+    }
+
+    private void FireTier2SemicirclePulse()
+    {
+        if (bulletPrefab == null) return;
+
+        // Dirección central apuntando hacia el jugador
+        Vector3 aimDir = GetAimDirection(true);
+
+        // Media pulsación: semicircunferencia (180 grados) de proyectiles hacia el jugador
+        // 7 proyectiles distribuidos uniformemente desde -90° hasta +90° respecto a aimDir
+        const int bulletCount = 7;
+        const float totalArc = 180f;
+        float startAngle = -totalArc * 0.5f; // -90°
+        float step = totalArc / (bulletCount - 1); // 30° entre cada proyectil
+
+        for (int i = 0; i < bulletCount; i++)
+        {
+            float offsetAngle = startAngle + (i * step);
+            Vector3 bulletDir = (Quaternion.Euler(0f, 0f, offsetAngle) * aimDir).normalized;
+            FireBullet(bulletPrefab, 400f, bulletDir);
         }
     }
 
     IEnumerator FireTier3()
     {
+        yield return new WaitForSeconds(1.0f); // Breve espera inicial tras posicionarse
         while (true)
         {
-            yield return new WaitForSeconds(fireCadence);
-            for (int i = 0; i < 3; i++)
-            {
-                FireBullet(bulletPrefab, 460f, GetAimDirection(tier3AimsAtPlayer));
-                TriggerRecoil(0.7f);
-                yield return new WaitForSeconds(0.66125f / 1.08f); // +8% generación de balas
-            }
-
+            // Fase de carga de energía / telegrafiado visual de la bala grande
             float chargeElapsed = 0f;
-            const float bigOrbWindup = 1.98375f / 1.08f; // +8% generación de balas
+            const float bigOrbWindup = 1.1f;
             while (chargeElapsed < bigOrbWindup)
             {
                 chargeElapsed += Time.deltaTime;
@@ -526,9 +577,21 @@ public class EnemyController : MonoBehaviour, IDamageable
             }
             chargeVisualProgress = 0f;
 
-            Vector3 dir = GetAimDirection(true);
-            FireBullet(bigBulletPrefab, tier3BigBulletSpeed, dir, dir * bigBulletSpawnOffset);
+            // Dispara ÚNICAMENTE la bala grande recta hacia abajo de la pantalla
+            Vector3 spawnOffset = Vector3.down * bigBulletSpawnOffset;
+            GameObject bigBullet = FireBullet(bigBulletPrefab, tier3BigBulletSpeed, Vector3.down, spawnOffset);
+
+            if (bigBullet != null && bigBullet.TryGetComponent<EnemyBullet>(out var eb))
+            {
+                // Cantidad aleatoria de pasos (distancia en eje Y) antes de estallar en racimo
+                float randomTravelDistY = Random.Range(240f, 540f);
+                eb.SetupClusterExplosion(bulletPrefab, randomTravelDistY, 350f);
+            }
+
             TriggerRecoil(1.25f);
+
+            // Intervalo de recarga antes del siguiente disparo
+            yield return new WaitForSeconds(fireCadence);
         }
     }
 
@@ -653,9 +716,9 @@ public class EnemyController : MonoBehaviour, IDamageable
         return obj;
     }
 
-    void FireBullet(GameObject prefab, float speed, Vector3? customDirection = null, Vector3? spawnOffset = null)
+    GameObject FireBullet(GameObject prefab, float speed, Vector3? customDirection = null, Vector3? spawnOffset = null)
     {
-        if (prefab == null) return;
+        if (prefab == null) return null;
         Vector3 dir = customDirection ?? Vector3.down;
         float angle = (dir.sqrMagnitude > 0.001f) ? Mathf.Atan2(dir.y, dir.x) * Mathf.Rad2Deg + 90f : 0f;
 
@@ -667,6 +730,7 @@ public class EnemyController : MonoBehaviour, IDamageable
             eb.direction = dir;
             eb.AlignRotationWithDirection();
         }
+        return obj;
     }
 
     private void ReserveRowPosition(Dictionary<int, List<float>> rowDict, float baseY)

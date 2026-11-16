@@ -179,8 +179,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 1c9a9448cfee294478b40eab09d21615, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::BossController
-  maxHealth: 250
-  moveSpeed: 175
+  maxHealth: 500
+  moveSpeed: 367.5
   targetY: 1100
   entrySpeed: 150
   bulletPrefab: {fileID: 5141576225277623232, guid: 2917fe9a5ce2d0540a4217361be42aff, type: 3}
@@ -188,14 +188,14 @@ MonoBehaviour:
   laserPrefab: {fileID: 1433648432647939853, guid: 0aa2282bfd8b5394f90e54adffd05761, type: 3}
   telegraphPrefab: {fileID: 3901847192837461920, guid: d71a8f3b49e211efa8210242ac120002, type: 3}
   tier4Prefab: {fileID: 5092116378913370737, guid: 6c8b3d1b93e2db843ac5702764264c31, type: 3}
-  smallBulletCadence: 1.02
+  smallBulletCadence: 0.51
   smallBulletSpeed: 460
   smallBulletCount: 12
   homingTurnSpeed: 100
-  bigBulletCadence: 1
+  bigBulletCadence: 0.5
   bigBulletSpeed: 288
   bigBulletLifetime: 40
-  laserWarningDuration: 3
+  laserWarningDuration: 2
   laserActiveDuration: 3
   laserWidth: 150
   laserLength: 3500
