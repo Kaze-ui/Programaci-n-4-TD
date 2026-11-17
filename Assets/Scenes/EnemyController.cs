@@ -54,7 +54,7 @@ public class EnemyController : MonoBehaviour, IDamageable
     public GameObject bigBulletPrefab;
     public GameObject laserPrefab;
     public float fireCadence = 1f;
-    public float tier1BulletSpeed = 276f; // +15% velocidad bala normal (240 * 1.15)
+    public float tier1BulletSpeed = 207f; // -25% velocidad bala normal (276 * 0.75)
     public float tier3BigBulletSpeed = 240f;
 
     [Header("Láser y Señalización (Tier 4)")]
@@ -131,31 +131,42 @@ public class EnemyController : MonoBehaviour, IDamageable
 
         // +8% de generación de balas para todos los enemigos (multiplica los tiempos de recarga por 1 / 1.08)
         const float bulletRateBoost = 1f / 1.08f;
+        // +70% de tiempo de espera para disparar (tardan 70% más en disparar)
+        const float enemyFireDelayBoost = 1.70f;
 
         if (tier == EnemyTier.Tier1)
         {
             aimsAtPlayer = Random.value < tier1AimChance;
-            fireCadence = 1.0f; // 1 segundo entre ráfaga y ráfaga
+            if (Mathf.Approximately(fireCadence, 1.275f) || Mathf.Approximately(fireCadence, 1.02f) || Mathf.Approximately(fireCadence, 1f) || Mathf.Approximately(fireCadence, 2.17f))
+                fireCadence = (2.875f * bulletRateBoost) * enemyFireDelayBoost; // +70% más tiempo para disparar
+            else
+                fireCadence *= (1.3225f * bulletRateBoost) * enemyFireDelayBoost;
 
-            if (Mathf.Approximately(tier1BulletSpeed, 240f) || Mathf.Approximately(tier1BulletSpeed, 168f))
-                tier1BulletSpeed = 276f; // +15% velocidad bala (240 * 1.15)
+            if (Mathf.Approximately(tier1BulletSpeed, 240f) || Mathf.Approximately(tier1BulletSpeed, 168f) || Mathf.Approximately(tier1BulletSpeed, 276f) || Mathf.Approximately(tier1BulletSpeed, 207f))
+                tier1BulletSpeed = 207f; // -25% velocidad bala (276 * 0.75)
+            else
+                tier1BulletSpeed *= 0.75f;
         }
         else if (tier == EnemyTier.Tier2)
         {
-            fireCadence = 4f; // 4 segundos de delay entre ráfaga y ráfaga
+            tier2AimsAtPlayer = Random.value < tier2AimChance;
+            if (Mathf.Approximately(fireCadence, 1f))
+                fireCadence = (1.3225f * bulletRateBoost) * enemyFireDelayBoost; // +70% más tiempo para disparar
+            else
+                fireCadence *= (1.3225f * bulletRateBoost) * enemyFireDelayBoost;
         }
         else if (tier == EnemyTier.Tier3)
         {
             tier3AimsAtPlayer = Random.value < tier3AimChance;
             if (Mathf.Approximately(fireCadence, 1f))
-                fireCadence = 1.3225f * bulletRateBoost; // +8% generación de balas
+                fireCadence = (1.3225f * bulletRateBoost) * enemyFireDelayBoost; // +70% más tiempo para disparar
             else
-                fireCadence *= (1.3225f * bulletRateBoost);
+                fireCadence *= (1.3225f * bulletRateBoost) * enemyFireDelayBoost;
         }
         else if (tier == EnemyTier.Tier4)
         {
             laserTelegraphDuration = 2.5f * (2f / 3f); // -1/3 de duración de la marca antes de disparar (1.667s)
-            laserCooldown *= (1.3225f * bulletRateBoost); // +8% frecuencia de disparo del láser
+            laserCooldown *= (1.3225f * bulletRateBoost) * enemyFireDelayBoost; // +70% más tiempo entre disparos de láser
             bool isBossFight = (GameManager.Instance != null && GameManager.Instance.IsInBossFight);
             float baseTier4Y = isBossFight ? 1380f : 1150f;
 
@@ -477,12 +488,12 @@ public class EnemyController : MonoBehaviour, IDamageable
 
     IEnumerator FireTier1()
     {
-        yield return new WaitForSeconds(0.6f); // Respiro inicial al posicionarse en pantalla
+        yield return new WaitForSeconds(0.8f); // Respiro inicial al posicionarse en pantalla
         while (true)
         {
             FireTier1TripleShot();
             TriggerRecoil(0.35f);
-            yield return new WaitForSeconds(fireCadence); // 1 segundo exacto entre ráfaga y ráfaga
+            yield return new WaitForSeconds(fireCadence);
         }
     }
 
@@ -522,20 +533,9 @@ public class EnemyController : MonoBehaviour, IDamageable
         yield return new WaitForSeconds(1.0f); // Respiro inicial al posicionarse en pantalla
         while (true)
         {
-            // Dispara ráfagas durante 4 segundos con cadencia de 0.100s (100ms) entre ráfagas
-            float fireTimer = 4.0f;
-            const float burstInterval = 0.100f;
-
-            while (fireTimer > 0f)
-            {
-                FireTier2SemicirclePulse();
-                TriggerRecoil(0.35f);
-                yield return new WaitForSeconds(burstInterval);
-                fireTimer -= burstInterval;
-            }
-
-            // Pausa de 3 segundos sin disparar
-            yield return new WaitForSeconds(3.0f);
+            FireTier2SemicirclePulse();
+            TriggerRecoil(0.5f);
+            yield return new WaitForSeconds(fireCadence);
         }
     }
 
@@ -557,7 +557,7 @@ public class EnemyController : MonoBehaviour, IDamageable
         {
             float offsetAngle = startAngle + (i * step);
             Vector3 bulletDir = (Quaternion.Euler(0f, 0f, offsetAngle) * aimDir).normalized;
-            FireBullet(bulletPrefab, 400f, bulletDir);
+            FireBullet(bulletPrefab, 300f, bulletDir); // -25% de velocidad (400 * 0.75)
         }
     }
 
@@ -585,7 +585,7 @@ public class EnemyController : MonoBehaviour, IDamageable
             {
                 // Cantidad aleatoria de pasos (distancia en eje Y) antes de estallar en racimo
                 float randomTravelDistY = Random.Range(240f, 540f);
-                eb.SetupClusterExplosion(bulletPrefab, randomTravelDistY, 350f);
+                eb.SetupClusterExplosion(bulletPrefab, randomTravelDistY, 262.5f); // -25% de velocidad fragmentos (350 * 0.75)
             }
 
             TriggerRecoil(1.25f);

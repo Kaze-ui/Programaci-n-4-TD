@@ -29,9 +29,10 @@ public class BossController : MonoBehaviour, IDamageable
 
     [Header("Parámetros de Proyectiles")]
     public float smallBulletCadence = 0.51f; // -50% tiempo de generación de balas (doble de cadencia)
-    public float smallBulletSpeed = 460f; // +15% velocidad de bala normal (400 * 1.15)
+    public float smallBulletSpeed = 345f; // -25% velocidad bala normal (460 * 0.75)
     public int smallBulletCount = 12;
-    public float bigBulletCadence = 0.5f; // -50% tiempo de generación de balas (doble de cadencia)
+    public float bigBulletCadence = 5f; // Disparo cada 5 segundos exactos
+    public float bossClusterFragmentSpeed = 180f; // Velocidad reducida de las balitas al explotar
     public float bigBulletSpeed = 288f;
     public float bigBulletLifetime = 40f;
 
@@ -83,9 +84,10 @@ public class BossController : MonoBehaviour, IDamageable
         // y -50% de reducción de tiempo de generación para el jefe (doble de producción de balas)
         const float bulletRateBoost = 1f / 1.08f;
         smallBulletCadence *= (1.3225f * bulletRateBoost) * 0.5f;
-        bigBulletCadence *= (1.3225f * bulletRateBoost) * 0.5f;
+        bigBulletCadence = 5f; // Disparo cada 5 segundos exactos
         laserWarningDuration = 2f; // -1/3 de duración de la marca previa (3s * 2/3 = 2s)
-        if (Mathf.Approximately(smallBulletSpeed, 400f) || Mathf.Approximately(smallBulletSpeed, 280f)) smallBulletSpeed = 460f;
+        if (Mathf.Approximately(smallBulletSpeed, 400f) || Mathf.Approximately(smallBulletSpeed, 280f) || Mathf.Approximately(smallBulletSpeed, 460f)) smallBulletSpeed = 345f;
+        else smallBulletSpeed *= 0.75f;
 
         currentHealth = maxHealth;
         mainCam = Camera.main;
@@ -198,20 +200,32 @@ public class BossController : MonoBehaviour, IDamageable
         }
     }
 
-    // Ataque 2: Balas gigantes en las diagonales inferiores
+    // Ataque 2: Balas gigantes por lado (izq y der) con comportamiento de racimo tipo Tier 3
     IEnumerator BigBulletDiagonalRoutine()
     {
+        yield return new WaitForSeconds(1.5f); // Breve respiro inicial tras entrar a pantalla
         Vector3[] offsets = { new Vector3(-150f, -150f, 0f), new Vector3(150f, -150f, 0f) };
-        Vector3[] dirs = { new Vector3(-1f, -1f, 0f).normalized, new Vector3(1f, -1f, 0f).normalized };
 
         while (true)
         {
-            yield return new WaitForSeconds(bigBulletCadence);
-            if (bigBulletPrefab == null) continue;
+            if (bigBulletPrefab != null)
+            {
+                // Dispara una bala grande por cada lado simultáneamente
+                for (int i = 0; i < offsets.Length; i++)
+                {
+                    Vector3 spawnPos = transform.position + offsets[i];
+                    GameObject bigBullet = FireBullet(bigBulletPrefab, bigBulletSpeed, Vector3.down, spawnPos, bigBulletLifetime);
+                    if (bigBullet != null && bigBullet.TryGetComponent<EnemyBullet>(out var eb))
+                    {
+                        // Comportamiento idéntico al Tier 3: explota en racimo tras recorrer una distancia en Y
+                        float randomTravelDistY = Random.Range(280f, 550f);
+                        eb.SetupClusterExplosion(bulletPrefab, randomTravelDistY, bossClusterFragmentSpeed);
+                    }
+                }
+                TriggerRecoil(1.1f);
+            }
 
-            for (int i = 0; i < offsets.Length; i++)
-                FireBullet(bigBulletPrefab, bigBulletSpeed, dirs[i], transform.position + offsets[i], bigBulletLifetime);
-            TriggerRecoil(0.95f);
+            yield return new WaitForSeconds(bigBulletCadence); // Cada 5 segundos
         }
     }
 
@@ -313,9 +327,9 @@ public class BossController : MonoBehaviour, IDamageable
         return obj;
     }
 
-    private void FireBullet(GameObject prefab, float speed, Vector3 dir, Vector3 spawnPos, float? lifetime = null)
+    private GameObject FireBullet(GameObject prefab, float speed, Vector3 dir, Vector3 spawnPos, float? lifetime = null)
     {
-        if (prefab == null) return;
+        if (prefab == null) return null;
         float angle = Mathf.Atan2(dir.y, dir.x) * Mathf.Rad2Deg + 90f;
         GameObject obj = Instantiate(prefab, spawnPos, Quaternion.Euler(0f, 0f, angle));
 
@@ -327,6 +341,7 @@ public class BossController : MonoBehaviour, IDamageable
             if (lifetime.HasValue) eb.lifeTime = lifetime.Value;
             eb.AlignRotationWithDirection();
         }
+        return obj;
     }
 
     public void TakeDamage(int amount) => TakeDamage((float)amount);

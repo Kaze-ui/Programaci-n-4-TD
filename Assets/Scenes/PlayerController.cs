@@ -65,7 +65,7 @@ public class PlayerController : MonoBehaviour
     public static readonly System.Collections.Generic.List<PlayerController> ActivePlayers = new System.Collections.Generic.List<PlayerController>();
 
     [Header("Campo de Fuerza y Ralentización")]
-    public const float ForceFieldRadius = 125f; // Área del campo de fuerza donde las balas enemigas se ralentizan un 50%
+    public const float ForceFieldRadius = 125f; // Área del campo de fuerza donde las balas enemigas se ralentizan al 25% de velocidad (75% de ralentización)
     public const float BulletSlowRadius = ForceFieldRadius; // Alias para compatibilidad
     public const float ShieldCloseRadius = ForceFieldRadius;
     public const float ShieldProximityRadius = ForceFieldRadius;

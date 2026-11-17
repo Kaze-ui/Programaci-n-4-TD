@@ -2,7 +2,7 @@ using UnityEngine;
 
 public class EnemyBullet : MonoBehaviour
 {
-    public float speed = 345f; // +15% velocidad base (300 * 1.15)
+    public float speed = 258.75f; // -25% velocidad de movimiento de balas normales (345 * 0.75)
     public int damage = 1;
     public Vector3 direction = Vector3.down;
     public float lifeTime = 5f;
@@ -26,11 +26,11 @@ public class EnemyBullet : MonoBehaviour
     private bool shouldExplodeCluster = false;
     private GameObject clusterFragmentPrefab;
     private float clusterExplodeDistance = 350f;
-    private float clusterFragmentSpeed = 350f;
+    private float clusterFragmentSpeed = 262.5f; // -25% de velocidad (350 * 0.75)
     private float startClusterY = 0f;
     private bool hasExplodedCluster = false;
 
-    public void SetupClusterExplosion(GameObject fragmentPrefab, float explodeDistanceY, float fragmentSpeed = 350f)
+    public void SetupClusterExplosion(GameObject fragmentPrefab, float explodeDistanceY, float fragmentSpeed = 262.5f)
     {
         shouldExplodeCluster = true;
         clusterFragmentPrefab = fragmentPrefab;
@@ -112,8 +112,8 @@ public class EnemyBullet : MonoBehaviour
             }
         }
 
-        // Ralentiza la velocidad de las balas un 50% ÚNICAMENTE dentro del área del campo de fuerza
-        currentSlowMultiplier = inForceFieldOfAnyPlayer ? 0.50f : 1.0f;
+        // Ralentiza la velocidad de las balas un 25% adicional (pasa del 50% al 25% de velocidad restante, es decir 75% de ralentización) ÚNICAMENTE dentro del área del campo de fuerza
+        currentSlowMultiplier = inForceFieldOfAnyPlayer ? 0.25f : 1.0f;
 
         transform.position += direction.normalized * (speed * currentSlowMultiplier) * Time.deltaTime;
     }
