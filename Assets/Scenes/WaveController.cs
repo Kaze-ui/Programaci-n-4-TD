@@ -43,6 +43,7 @@ public class WaveController : MonoBehaviour
 
     public bool hasReachedWave1Upgrades { get; private set; } = false;
     public bool CanPlayer2Join => currentWaveIndex == 0 && !hasReachedWave1Upgrades;
+    public bool IsBossWave => GameManager.Instance != null && GameManager.Instance.currentState == GameManager.GameState.BossFight;
 
     [Header("Prefabs de enemigos para generación dinámica")]
     public GameObject tier1Prefab;

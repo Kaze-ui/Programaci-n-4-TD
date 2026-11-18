@@ -32,6 +32,19 @@ public class Bullet : MonoBehaviour
     private bool isHeavyShot = false;
     private float age = 0f;
 
+    void Awake()
+    {
+        // Hitbox exacta y precisa ceñida al proyectil del jugador
+        if (TryGetComponent<BoxCollider2D>(out var boxCol))
+        {
+            boxCol.size = isBigBullet ? new Vector2(0.26f, 0.88f) : new Vector2(0.24f, 0.86f);
+        }
+        else if (TryGetComponent<CapsuleCollider2D>(out var capCol))
+        {
+            capCol.size = isBigBullet ? new Vector2(0.26f, 0.88f) : new Vector2(0.24f, 0.86f);
+        }
+    }
+
     void Start()
     {
         Destroy(gameObject, lifeTime);

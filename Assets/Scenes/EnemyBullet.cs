@@ -42,44 +42,103 @@ public class EnemyBullet : MonoBehaviour
     [Header("Ralentización por Proximidad")]
     private float currentSlowMultiplier = 1.0f;
     private GameObject slowRedOutlineObj;
-    private static Sprite cachedRedOutlineRingSprite;
+    private SpriteRenderer slowOutlineSr;
+    private static Sprite cachedBulletOutlineSprite;
 
-    private static Sprite GetRedOutlineRingSprite()
+    private static Sprite GetBulletOutlineSprite(Sprite sourceSprite)
     {
-        if (cachedRedOutlineRingSprite != null) return cachedRedOutlineRingSprite;
+        if (cachedBulletOutlineSprite != null) return cachedBulletOutlineSprite;
 
-        const int size = 64;
-        Texture2D tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
-        tex.filterMode = FilterMode.Bilinear;
-        tex.wrapMode = TextureWrapMode.Clamp;
+        // Cargar el sprite con el contorno de los bordes exactos del proyectil
+        cachedBulletOutlineSprite = Resources.Load<Sprite>("Sprites/BulletAlienOutline");
+        if (cachedBulletOutlineSprite != null) return cachedBulletOutlineSprite;
 
-        float half = (size - 1) * 0.5f;
-        for (int y = 0; y < size; y++)
+        // Fallback procedural en tiempo de ejecución a partir del sprite de la bala
+        if (sourceSprite != null && sourceSprite.texture != null)
         {
-            for (int x = 0; x < size; x++)
-            {
-                float dx = (x - half) / half;
-                float dy = (y - half) / half;
-                float r = Mathf.Sqrt(dx * dx + dy * dy);
-
-                // Contorno ROJO muy grueso, intenso y llamativo alrededor de toda la bala + halo rojo exterior
-                float innerCut = Mathf.SmoothStep(0.42f, 0.52f, r);
-                float solidBand = innerCut * (1f - Mathf.SmoothStep(0.76f, 0.85f, r));
-                float outerGlow = innerCut * (1f - Mathf.SmoothStep(0.76f, 1.00f, r)) * 0.78f;
-                float alpha = Mathf.Clamp01(Mathf.Max(solidBand, outerGlow));
-
-                // Rojo puro ultrasaturado (#FF0008) para máxima visibilidad a simple vista
-                tex.SetPixel(x, y, new Color(1f, 0.0f, 0.03f, alpha));
-            }
+            cachedBulletOutlineSprite = GenerateOutlineFromSprite(sourceSprite);
+            if (cachedBulletOutlineSprite != null) return cachedBulletOutlineSprite;
         }
-        tex.Apply();
 
-        // PPU = size para que el sprite mida exactamente 1x1 unidad local
-        cachedRedOutlineRingSprite = Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f), size);
-        return cachedRedOutlineRingSprite;
+        return sourceSprite;
     }
 
-    private Vector3 slowOutlineBaseScale = Vector3.one;
+    private static Sprite GenerateOutlineFromSprite(Sprite source)
+    {
+        try
+        {
+            Texture2D srcTex = source.texture;
+            int w = Mathf.Min(srcTex.width, 256);
+            int h = Mathf.Min(srcTex.height, 256);
+            RenderTexture rt = RenderTexture.GetTemporary(w, h, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB);
+            Graphics.Blit(srcTex, rt);
+
+            RenderTexture prev = RenderTexture.active;
+            RenderTexture.active = rt;
+            Texture2D copy = new Texture2D(w, h, TextureFormat.RGBA32, false);
+            copy.ReadPixels(new Rect(0, 0, w, h), 0, 0);
+            RenderTexture.active = prev;
+            RenderTexture.ReleaseTemporary(rt);
+
+            Color[] srcPixels = copy.GetPixels();
+            Color[] outPixels = new Color[w * h];
+            bool[] solid = new bool[w * h];
+
+            for (int i = 0; i < srcPixels.Length; i++)
+            {
+                solid[i] = srcPixels[i].a >= 0.12f;
+            }
+
+            int radius = 4;
+            for (int y = 0; y < h; y++)
+            {
+                for (int x = 0; x < w; x++)
+                {
+                    bool cur = solid[y * w + x];
+                    float minDist = float.MaxValue;
+
+                    int ymin = Mathf.Max(0, y - radius);
+                    int ymax = Mathf.Min(h - 1, y + radius);
+                    int xmin = Mathf.Max(0, x - radius);
+                    int xmax = Mathf.Min(w - 1, x + radius);
+
+                    for (int ny = ymin; ny <= ymax; ny++)
+                    {
+                        for (int nx = xmin; nx <= xmax; nx++)
+                        {
+                            if (solid[ny * w + nx] != cur)
+                            {
+                                float d = Mathf.Sqrt((x - nx) * (x - nx) + (y - ny) * (y - ny));
+                                if (d < minDist) minDist = d;
+                            }
+                        }
+                    }
+
+                    if (minDist <= radius * 0.75f)
+                    {
+                        float alphaFactor = 1.0f - (minDist / (radius * 0.75f));
+                        outPixels[y * w + x] = new Color(1.0f, 0.05f, 0.08f, alphaFactor);
+                    }
+                    else
+                    {
+                        outPixels[y * w + x] = Color.clear;
+                    }
+                }
+            }
+
+            Texture2D outTex = new Texture2D(w, h, TextureFormat.RGBA32, false);
+            outTex.filterMode = FilterMode.Bilinear;
+            outTex.wrapMode = TextureWrapMode.Clamp;
+            outTex.SetPixels(outPixels);
+            outTex.Apply();
+
+            return Sprite.Create(outTex, new Rect(0, 0, w, h), new Vector2(0.5f, 0.5f), source.pixelsPerUnit);
+        }
+        catch
+        {
+            return source;
+        }
+    }
 
     private void UpdateSlowRedOutlineVisual(bool isSlowed)
     {
@@ -96,42 +155,44 @@ public class EnemyBullet : MonoBehaviour
             slowRedOutlineObj.transform.SetParent(transform, false);
             slowRedOutlineObj.transform.localPosition = Vector3.zero;
             slowRedOutlineObj.transform.localRotation = Quaternion.identity;
+            slowRedOutlineObj.transform.localScale = Vector3.one;
 
-            SpriteRenderer outlineSr = slowRedOutlineObj.AddComponent<SpriteRenderer>();
-            outlineSr.sprite = GetRedOutlineRingSprite();
-            outlineSr.color = new Color(1f, 0.02f, 0.04f, 1f);
-
+            slowOutlineSr = slowRedOutlineObj.AddComponent<SpriteRenderer>();
             SpriteRenderer bulletSr = GetComponent<SpriteRenderer>();
+
+            Sprite outlineSp = GetBulletOutlineSprite(bulletSr != null ? bulletSr.sprite : null);
+            slowOutlineSr.sprite = outlineSp;
+            slowOutlineSr.color = new Color(1f, 0.05f, 0.08f, 1f);
+
             if (bulletSr != null)
             {
-                outlineSr.sortingLayerID = bulletSr.sortingLayerID;
-                outlineSr.sortingOrder = bulletSr.sortingOrder + 3;
-                if (bulletSr.sprite != null)
-                {
-                    Vector2 spSize = bulletSr.sprite.bounds.size;
-                    float spanX = Mathf.Max(0.25f, spSize.x);
-                    float spanY = Mathf.Max(0.25f, spSize.y);
-                    // Contorno rojo grueso y brillante claramente visible alrededor de toda la bala
-                    slowOutlineBaseScale = new Vector3(spanX * 1.65f, spanY * 1.65f, 1f);
-                }
-                else
-                {
-                    slowOutlineBaseScale = new Vector3(1.65f, 1.65f, 1f);
-                }
+                slowOutlineSr.sortingLayerID = bulletSr.sortingLayerID;
+                slowOutlineSr.sortingOrder = bulletSr.sortingOrder + 2;
             }
-            else
-            {
-                slowOutlineBaseScale = new Vector3(1.65f, 1.65f, 1f);
-            }
-            slowRedOutlineObj.transform.localScale = slowOutlineBaseScale;
         }
 
         if (!slowRedOutlineObj.activeSelf)
             slowRedOutlineObj.SetActive(true);
 
-        // Pulso sutil y enérgico para que las balas ralentizadas resalten al instante
-        float pulse = 1.0f + 0.07f * Mathf.Sin(Time.time * 18f);
-        slowRedOutlineObj.transform.localScale = slowOutlineBaseScale * pulse;
+        // Pulso dinámico de brillo sobre los bordes del sprite sin desfasar la silueta geométrica
+        float pulse = 0.82f + 0.18f * Mathf.Sin(Time.time * 16f);
+        if (slowOutlineSr != null)
+        {
+            slowOutlineSr.color = new Color(1f, 0.05f, 0.08f, pulse);
+        }
+    }
+
+    void Awake()
+    {
+        // Hitbox exacta y precisa ceñida al cuerpo real del proyectil
+        if (TryGetComponent<BoxCollider2D>(out var boxCol))
+        {
+            boxCol.size = isBigBullet ? new Vector2(0.46f, 0.76f) : new Vector2(0.42f, 0.70f);
+        }
+        else if (TryGetComponent<CapsuleCollider2D>(out var capCol))
+        {
+            capCol.size = isBigBullet ? new Vector2(0.46f, 0.76f) : new Vector2(0.42f, 0.70f);
+        }
     }
 
     void Start()

@@ -137,17 +137,16 @@ public class PlayerController : MonoBehaviour
         if (currentHealth <= 0) currentHealth = maxHealth;
         mainCam = Camera.main;
 
-        // Agrandar la nave un 30% visualmente manteniendo la hitbox EXACTAMENTE igual en el mundo:
-        // Se compensa dividiendo el tamaño del collider por 1.30f para que al multiplicarse por el nuevo
-        // scale de la nave (baseShipScale * 1.30f) la hitbox física conserve su dimensión milimétrica idéntica.
+        // Hitbox de los jugadores mucho más exacta y precisa:
+        // Se ciñe al núcleo central de la nave, eliminando las esquinas falsas
         const float shipScaleMultiplier = 1.30f;
         if (TryGetComponent<BoxCollider2D>(out var boxCol))
         {
-            boxCol.size = new Vector2(0.4f / shipScaleMultiplier, 0.4f / shipScaleMultiplier);
+            boxCol.size = new Vector2(0.22f / shipScaleMultiplier, 0.22f / shipScaleMultiplier);
         }
         else if (TryGetComponent<CircleCollider2D>(out var circleCol))
         {
-            circleCol.radius = 0.2f / shipScaleMultiplier;
+            circleCol.radius = 0.11f / shipScaleMultiplier;
         }
 
         if (firePoint == null)
@@ -817,6 +816,19 @@ public class PlayerController : MonoBehaviour
             return;
         }
 
+        // La bala anti cheaters está activa en todas las oleadas normales y durante la Fase 1 del jefe;
+        // se desactiva ÚNICAMENTE a partir de la Fase 2 del jefe.
+        BossController boss = FindAnyObjectByType<BossController>();
+        bool isBossPhase2 = boss != null && boss.IsPhase2;
+
+        if (isBossPhase2)
+        {
+            topCampTimer = 0f;
+            topCampRepeatTimer = 0f;
+            hasSpawnedFirstCampBullet = false;
+            return;
+        }
+
         if (GameManager.Instance != null &&
             GameManager.Instance.currentState != GameManager.GameState.Playing &&
             GameManager.Instance.currentState != GameManager.GameState.BossFight)
@@ -867,6 +879,22 @@ public class PlayerController : MonoBehaviour
     private void SpawnTopCampPunishmentBullet(float camCenterX, float vertExtent)
     {
         GameObject prefab = WaveController.Instance != null ? WaveController.Instance.GetTier3BigBulletPrefab() : null;
+        if (prefab == null)
+        {
+            prefab = Resources.Load<GameObject>("Prefabs/EnemyBulletBig");
+        }
+        if (prefab == null)
+        {
+            EnemyController[] all = FindObjectsByType<EnemyController>(FindObjectsSortMode.None);
+            for (int i = 0; i < all.Length; i++)
+            {
+                if (all[i] != null && all[i].bigBulletPrefab != null)
+                {
+                    prefab = all[i].bigBulletPrefab;
+                    break;
+                }
+            }
+        }
         if (prefab == null)
         {
             BossController boss = FindAnyObjectByType<BossController>();

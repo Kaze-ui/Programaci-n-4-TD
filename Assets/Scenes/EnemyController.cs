@@ -111,13 +111,23 @@ public class EnemyController : MonoBehaviour, IDamageable
         return 1800f;
     }
 
+    [Header("Invulnerabilidad de Entrada")]
+    public float entryInvulnerabilityDuration = 1.0f;
+    private float entryInvulnerabilityTimer = 0f;
+    public bool IsEntryInvulnerable => entryInvulnerabilityTimer > 0f;
+
     void Start()
     {
+        // 50% más de salud a los enemigos en modo dos jugadores
         if (GameManager.Instance != null && GameManager.Instance.IsPlayer2Joined)
-            maxHealth = Mathf.Max(1, Mathf.RoundToInt(maxHealth * 1.9f));
+            maxHealth = Mathf.Max(1, Mathf.RoundToInt(maxHealth * 1.50f));
 
         currentHealth = maxHealth;
         mainCam = Camera.main;
+
+        // 1 segundo de invulnerabilidad al entrar con efecto visual blanco temporal
+        entryInvulnerabilityTimer = entryInvulnerabilityDuration;
+        SpriteHitFlash.TriggerOn(gameObject, entryInvulnerabilityDuration, 0.75f);
 
         // Asignación de puntajes por tier
         scoreValue = tier switch
@@ -197,6 +207,10 @@ public class EnemyController : MonoBehaviour, IDamageable
     void Update()
     {
         if (Time.timeScale == 0f || isDead) return;
+        if (entryInvulnerabilityTimer > 0f)
+        {
+            entryInvulnerabilityTimer -= Time.deltaTime;
+        }
         UpdateEnemyAnimation();
     }
 
@@ -706,7 +720,12 @@ public class EnemyController : MonoBehaviour, IDamageable
         obj.transform.localScale = new Vector3(width, length, 1f);
 
         SpriteRenderer sr = obj.AddComponent<SpriteRenderer>();
-        if (bulletPrefab != null && bulletPrefab.TryGetComponent<SpriteRenderer>(out var bSr))
+        Sprite beamSprite = Resources.Load<Sprite>("Sprites/LaserBeam");
+        if (beamSprite != null)
+        {
+            sr.sprite = beamSprite;
+        }
+        else if (bulletPrefab != null && bulletPrefab.TryGetComponent<SpriteRenderer>(out var bSr))
         {
             sr.sprite = bSr.sprite;
             sr.material = bSr.sharedMaterial;
@@ -780,7 +799,7 @@ public class EnemyController : MonoBehaviour, IDamageable
 
     public void TakeDamage(float amount)
     {
-        if (Time.timeScale == 0f || isDead) return;
+        if (Time.timeScale == 0f || isDead || entryInvulnerabilityTimer > 0f) return;
         currentHealth -= amount;
         if (currentHealth <= 0.001f)
         {
@@ -792,8 +811,8 @@ public class EnemyController : MonoBehaviour, IDamageable
 
     public void DoubleHealth()
     {
-        maxHealth = Mathf.Max(1, Mathf.RoundToInt(maxHealth * 1.9f));
-        currentHealth *= 1.9f;
+        maxHealth = Mathf.Max(1, Mathf.RoundToInt(maxHealth * 1.50f));
+        currentHealth *= 1.50f;
     }
 
     public bool IsDead() => isDead || currentHealth <= 0.001f;

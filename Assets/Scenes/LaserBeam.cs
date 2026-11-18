@@ -12,6 +12,18 @@ public class LaserBeam : MonoBehaviour
 
     private float aliveTimer = 0f;
 
+    void Awake()
+    {
+        if (TryGetComponent<SpriteRenderer>(out var sr))
+        {
+            if (sr.sprite == null || sr.sprite.name == "Square" || sr.sprite.name.Contains("Default"))
+            {
+                Sprite beamSp = Resources.Load<Sprite>("Sprites/LaserBeam");
+                if (beamSp != null) sr.sprite = beamSp;
+            }
+        }
+    }
+
     void Start()
     {
         if (autoDestroy && activeDuration > 0f)

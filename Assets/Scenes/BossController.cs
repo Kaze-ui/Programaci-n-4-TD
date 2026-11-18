@@ -73,6 +73,7 @@ public class BossController : MonoBehaviour, IDamageable
     private Coroutine smallBulletCoroutine;
     private Coroutine bigBulletCoroutine;
     private Coroutine superLaserCoroutine;
+    private Coroutine phase2PulseCoroutine;
     private Coroutine tier4MinionsCoroutine;
     private Coroutine phase2TransitionCoroutine;
 
@@ -108,7 +109,7 @@ public class BossController : MonoBehaviour, IDamageable
         if (Mathf.Approximately(moveSpeed, 175f) || Mathf.Approximately(moveSpeed, 122.5f)) moveSpeed = 367.5f;
 
         if (GameManager.Instance != null && GameManager.Instance.IsPlayer2Joined)
-            maxHealth = Mathf.Max(1, Mathf.RoundToInt(maxHealth * 1.9f));
+            maxHealth = Mathf.Max(1, Mathf.RoundToInt(maxHealth * 1.50f));
 
         // +8% de generación de balas para todos los enemigos (multiplica los tiempos de recarga por 1 / 1.08)
         // y -50% de reducción de tiempo de generación para el jefe (doble de producción de balas)
@@ -167,12 +168,13 @@ public class BossController : MonoBehaviour, IDamageable
             float sweepSlowdown = isSweepingLaser ? 0.42f : 1f;
             transform.position += Vector3.right * moveDirection * (baseSpeed * rageMult * sweepSlowdown) * Time.deltaTime;
 
-            // Garantiza que las corrutinas de ataque (incluidos los láseres) sigan activas en Fase 1 y Fase 2
+            // Garantiza que las corrutinas de ataque (incluidos los láseres y pulsaciones de Fase 2) sigan activas en Fase 1 y Fase 2
             if (!isDead)
             {
                 if (smallBulletCoroutine == null) smallBulletCoroutine = StartCoroutine(SmallBulletBottomRoutine());
                 if (bigBulletCoroutine == null) bigBulletCoroutine = StartCoroutine(BigBulletDiagonalRoutine());
                 if (superLaserCoroutine == null) superLaserCoroutine = StartCoroutine(SuperLaserRoutine());
+                if (isPhase2 && phase2PulseCoroutine == null) phase2PulseCoroutine = StartCoroutine(Phase2PulseRoutine());
             }
         }
 
@@ -186,6 +188,7 @@ public class BossController : MonoBehaviour, IDamageable
         smallBulletCoroutine = StartCoroutine(SmallBulletBottomRoutine());
         bigBulletCoroutine = StartCoroutine(BigBulletDiagonalRoutine());
         superLaserCoroutine = StartCoroutine(SuperLaserRoutine());
+        if (isPhase2) phase2PulseCoroutine = StartCoroutine(Phase2PulseRoutine());
     }
 
     private void StopNormalAttackRoutines()
@@ -193,6 +196,7 @@ public class BossController : MonoBehaviour, IDamageable
         if (smallBulletCoroutine != null) { StopCoroutine(smallBulletCoroutine); smallBulletCoroutine = null; }
         if (bigBulletCoroutine != null) { StopCoroutine(bigBulletCoroutine); bigBulletCoroutine = null; }
         if (superLaserCoroutine != null) { StopCoroutine(superLaserCoroutine); superLaserCoroutine = null; }
+        if (phase2PulseCoroutine != null) { StopCoroutine(phase2PulseCoroutine); phase2PulseCoroutine = null; }
     }
 
     void LateUpdate()
@@ -258,8 +262,10 @@ public class BossController : MonoBehaviour, IDamageable
 
         while (!isDead)
         {
-            float cadenceMultiplier = isPhase2 ? 1.10f : 1.35f;
-            yield return new WaitForSeconds(smallBulletCadence * cadenceMultiplier);
+            // En Fase 2 genera las balas normales con 2 segundos más de delay entre oleada y oleada
+            float cadenceMultiplier = isPhase2 ? (1.10f * 1.15f) : 1.35f;
+            float extraPhase2Delay = isPhase2 ? 2.0f : 0f;
+            yield return new WaitForSeconds((smallBulletCadence * cadenceMultiplier) + extraPhase2Delay);
             if (isDead || isTransitioningPhase2 || bulletPrefab == null) continue;
 
             for (int i = 0; i < cannonOffsetsX.Length; i++)
@@ -299,9 +305,35 @@ public class BossController : MonoBehaviour, IDamageable
                 TriggerRecoil(1.1f);
             }
 
-            // +50% de cadencia durante la segunda fase (5s -> ~3.33s)
-            float waitCadence = isPhase2 ? (bigBulletCadence / 1.5f) : bigBulletCadence;
+            // En Fase 2: 1 segundo menos de delay entre ráfagas de balas grandes
+            float waitCadence = isPhase2 ? Mathf.Max(0.5f, (bigBulletCadence / 1.5f) - 1.0f) : bigBulletCadence;
             yield return new WaitForSeconds(waitCadence);
+        }
+    }
+
+    // Ataque 4 (Fase 2): Cada 4 segundos dispara muchas balas en forma de pulsación radial en 360°
+    IEnumerator Phase2PulseRoutine()
+    {
+        yield return new WaitForSeconds(1.5f);
+        while (!isDead && isPhase2)
+        {
+            yield return new WaitForSeconds(4.0f);
+            if (isDead || !isPhase2 || isTransitioningPhase2 || bulletPrefab == null) continue;
+
+            const int pulseCount = 20;
+            float angleStep = 360f / pulseCount;
+            Vector3 centerPos = transform.position + new Vector3(0f, -80f, 0f);
+
+            for (int i = 0; i < pulseCount; i++)
+            {
+                float deg = i * angleStep;
+                float rad = deg * Mathf.Deg2Rad;
+                Vector3 dir = new Vector3(Mathf.Cos(rad), Mathf.Sin(rad), 0f);
+                FireBullet(bulletPrefab, smallBulletSpeed * 1.05f, dir, centerPos);
+            }
+
+            TriggerRecoil(0.85f);
+            SoundController.Instance?.PlayNormalShootSfx();
         }
     }
 
@@ -525,6 +557,7 @@ public class BossController : MonoBehaviour, IDamageable
         Vector3 beamCenter = new Vector3(camX, camY, 0f);
 
         // Láser rojo de aviso durante 3 segundos exactos
+        Sprite solidBeamSprite = GetHyperBeamSolidSprite();
         activeWarningLaser = telegraphPrefab != null
             ? Instantiate(telegraphPrefab, beamCenter, Quaternion.identity)
             : CreateRuntimeLaser("BossHyperWarning_Auto", beamCenter, new Color(1f, 0.10f, 0.10f, 0.38f), 4);
@@ -532,7 +565,8 @@ public class BossController : MonoBehaviour, IDamageable
 
         // Líneas rojas nítidas delimitando el borde izquierdo y derecho de la zona letal
         SpriteRenderer warnSr = activeWarningLaser.GetComponent<SpriteRenderer>();
-        Sprite unitSprite = warnSr != null ? warnSr.sprite : null;
+        if (warnSr != null) warnSr.sprite = solidBeamSprite; // Sprite sólido original del Hiper Rayo
+        Sprite unitSprite = solidBeamSprite;
         Material unitMat = warnSr != null ? warnSr.sharedMaterial : null;
         hyperWarningLeftEdge = CreateHyperStripVisual("BossHyperWarnLeftEdge",
             new Vector3(camX - hyperWidth * 0.5f, camY, 0f),
@@ -575,7 +609,7 @@ public class BossController : MonoBehaviour, IDamageable
         DestroySafe(ref hyperWarningRightEdge);
         if (isDead) yield break;
 
-        // 3. Disparo del Hiper Rayo masivo por el centro de la pantalla
+        // 3. Disparo del Hiper Rayo masivo por el centro de la pantalla (vuelve a su sprite sólido original)
         activeRealLaser = laserPrefab != null
             ? Instantiate(laserPrefab, beamCenter, Quaternion.identity)
             : CreateRuntimeLaser("BossHyperBeam_Auto", beamCenter, Color.white, 5, true);
@@ -584,6 +618,7 @@ public class BossController : MonoBehaviour, IDamageable
         SpriteRenderer realSr = activeRealLaser.GetComponent<SpriteRenderer>();
         if (realSr != null)
         {
+            realSr.sprite = solidBeamSprite; // Vuelve al sprite anterior sólido del Hiper Rayo
             realSr.color = new Color(0.42f, 0.85f, 1f, 0.95f);
             realSr.sortingOrder = 5;
         }
@@ -596,7 +631,7 @@ public class BossController : MonoBehaviour, IDamageable
             lb.autoDestroy = true;
         }
 
-        Sprite beamSprite = realSr != null ? realSr.sprite : unitSprite;
+        Sprite beamSprite = solidBeamSprite;
         Material beamMat = realSr != null ? realSr.sharedMaterial : unitMat;
         hyperBeamGlowVisual = CreateHyperStripVisual("BossHyperBeamOuterGlow",
             beamCenter,
@@ -649,6 +684,15 @@ public class BossController : MonoBehaviour, IDamageable
         tier4MinionsCoroutine = StartCoroutine(SpawnTier4MinionsRoutine(1.2f));
     }
 
+    private static Sprite s_HyperBeamSolidSprite;
+    private static Sprite GetHyperBeamSolidSprite()
+    {
+        if (s_HyperBeamSolidSprite != null) return s_HyperBeamSolidSprite;
+        Texture2D tex = Texture2D.whiteTexture;
+        s_HyperBeamSolidSprite = Sprite.Create(tex, new Rect(0, 0, tex.width, tex.height), new Vector2(0.5f, 0.5f), 1f);
+        return s_HyperBeamSolidSprite;
+    }
+
     private GameObject CreateHyperStripVisual(string name, Vector3 pos, Vector3 scale, Color color, int sortingOrder, Sprite sprite, Material mat)
     {
         GameObject obj = new GameObject(name);
@@ -678,7 +722,12 @@ public class BossController : MonoBehaviour, IDamageable
         obj.transform.localScale = new Vector3(laserWidth, laserLength, 1f);
 
         SpriteRenderer sr = obj.AddComponent<SpriteRenderer>();
-        if (bulletPrefab != null && bulletPrefab.TryGetComponent<SpriteRenderer>(out var bSr))
+        Sprite beamSprite = Resources.Load<Sprite>("Sprites/LaserBeam");
+        if (beamSprite != null)
+        {
+            sr.sprite = beamSprite;
+        }
+        else if (bulletPrefab != null && bulletPrefab.TryGetComponent<SpriteRenderer>(out var bSr))
         {
             sr.sprite = bSr.sprite;
             sr.material = bSr.sharedMaterial;
@@ -754,8 +803,8 @@ public class BossController : MonoBehaviour, IDamageable
 
     public void DoubleHealth()
     {
-        maxHealth = Mathf.Max(1, Mathf.RoundToInt(maxHealth * 1.9f));
-        currentHealth *= 1.9f;
+        maxHealth = Mathf.Max(1, Mathf.RoundToInt(maxHealth * 1.50f));
+        currentHealth *= 1.50f;
         GameManager.Instance?.hudManager?.ActivateBossHealthBar("Leviatán nodriza", maxHealth);
         GameManager.Instance?.hudManager?.UpdateBossHealth(currentHealth);
         if (isPhase2) GameManager.Instance?.hudManager?.SetBossPhase2(true);
@@ -766,6 +815,7 @@ public class BossController : MonoBehaviour, IDamageable
     public bool IsInvulnerable => !isDead && (!hasEntered || isTransitioningPhase2);
     public bool IsEnraged => !isDead && (isPhase2 || currentHealth <= maxHealth * 0.5f);
     public bool IsLaserActive => !isDead && isFiringLaser;
+    public bool IsPhase2 => isPhase2;
 
     void Die()
     {
