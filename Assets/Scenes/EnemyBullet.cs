@@ -41,6 +41,98 @@ public class EnemyBullet : MonoBehaviour
 
     [Header("Ralentización por Proximidad")]
     private float currentSlowMultiplier = 1.0f;
+    private GameObject slowRedOutlineObj;
+    private static Sprite cachedRedOutlineRingSprite;
+
+    private static Sprite GetRedOutlineRingSprite()
+    {
+        if (cachedRedOutlineRingSprite != null) return cachedRedOutlineRingSprite;
+
+        const int size = 64;
+        Texture2D tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
+        tex.filterMode = FilterMode.Bilinear;
+        tex.wrapMode = TextureWrapMode.Clamp;
+
+        float half = (size - 1) * 0.5f;
+        for (int y = 0; y < size; y++)
+        {
+            for (int x = 0; x < size; x++)
+            {
+                float dx = (x - half) / half;
+                float dy = (y - half) / half;
+                float r = Mathf.Sqrt(dx * dx + dy * dy);
+
+                // Contorno ROJO muy grueso, intenso y llamativo alrededor de toda la bala + halo rojo exterior
+                float innerCut = Mathf.SmoothStep(0.42f, 0.52f, r);
+                float solidBand = innerCut * (1f - Mathf.SmoothStep(0.76f, 0.85f, r));
+                float outerGlow = innerCut * (1f - Mathf.SmoothStep(0.76f, 1.00f, r)) * 0.78f;
+                float alpha = Mathf.Clamp01(Mathf.Max(solidBand, outerGlow));
+
+                // Rojo puro ultrasaturado (#FF0008) para máxima visibilidad a simple vista
+                tex.SetPixel(x, y, new Color(1f, 0.0f, 0.03f, alpha));
+            }
+        }
+        tex.Apply();
+
+        // PPU = size para que el sprite mida exactamente 1x1 unidad local
+        cachedRedOutlineRingSprite = Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f), size);
+        return cachedRedOutlineRingSprite;
+    }
+
+    private Vector3 slowOutlineBaseScale = Vector3.one;
+
+    private void UpdateSlowRedOutlineVisual(bool isSlowed)
+    {
+        if (!isSlowed)
+        {
+            if (slowRedOutlineObj != null && slowRedOutlineObj.activeSelf)
+                slowRedOutlineObj.SetActive(false);
+            return;
+        }
+
+        if (slowRedOutlineObj == null)
+        {
+            slowRedOutlineObj = new GameObject("SlowRedOutline");
+            slowRedOutlineObj.transform.SetParent(transform, false);
+            slowRedOutlineObj.transform.localPosition = Vector3.zero;
+            slowRedOutlineObj.transform.localRotation = Quaternion.identity;
+
+            SpriteRenderer outlineSr = slowRedOutlineObj.AddComponent<SpriteRenderer>();
+            outlineSr.sprite = GetRedOutlineRingSprite();
+            outlineSr.color = new Color(1f, 0.02f, 0.04f, 1f);
+
+            SpriteRenderer bulletSr = GetComponent<SpriteRenderer>();
+            if (bulletSr != null)
+            {
+                outlineSr.sortingLayerID = bulletSr.sortingLayerID;
+                outlineSr.sortingOrder = bulletSr.sortingOrder + 3;
+                if (bulletSr.sprite != null)
+                {
+                    Vector2 spSize = bulletSr.sprite.bounds.size;
+                    float spanX = Mathf.Max(0.25f, spSize.x);
+                    float spanY = Mathf.Max(0.25f, spSize.y);
+                    // Contorno rojo grueso y brillante claramente visible alrededor de toda la bala
+                    slowOutlineBaseScale = new Vector3(spanX * 1.65f, spanY * 1.65f, 1f);
+                }
+                else
+                {
+                    slowOutlineBaseScale = new Vector3(1.65f, 1.65f, 1f);
+                }
+            }
+            else
+            {
+                slowOutlineBaseScale = new Vector3(1.65f, 1.65f, 1f);
+            }
+            slowRedOutlineObj.transform.localScale = slowOutlineBaseScale;
+        }
+
+        if (!slowRedOutlineObj.activeSelf)
+            slowRedOutlineObj.SetActive(true);
+
+        // Pulso sutil y enérgico para que las balas ralentizadas resalten al instante
+        float pulse = 1.0f + 0.07f * Mathf.Sin(Time.time * 18f);
+        slowRedOutlineObj.transform.localScale = slowOutlineBaseScale * pulse;
+    }
 
     void Start()
     {
@@ -87,8 +179,7 @@ public class EnemyBullet : MonoBehaviour
             }
         }
 
-        // Detección de proximidad con jugadores activos:
-        // Las balas enemigas SOLO se ralentizan (50%) cuando entran en el área del campo de fuerza
+        // Detección de proximidad con jugadores activos (ralentiza incluso si el jugador está SIN escudo):
         bool inForceFieldOfAnyPlayer = false;
         var activePlayers = PlayerController.ActivePlayers;
         if (activePlayers != null && activePlayers.Count > 0)
@@ -99,7 +190,7 @@ public class EnemyBullet : MonoBehaviour
             for (int i = 0; i < activePlayers.Count; i++)
             {
                 PlayerController p = activePlayers[i];
-                if (p != null && p.gameObject.activeInHierarchy && p.GetCurrentHealth() > 0 && p.HasShield)
+                if (p != null && p.gameObject.activeInHierarchy && p.GetCurrentHealth() > 0)
                 {
                     Vector3 hitboxPos = p.GetHitboxCenter();
                     float distSq = (myPos - hitboxPos).sqrMagnitude;
@@ -112,7 +203,10 @@ public class EnemyBullet : MonoBehaviour
             }
         }
 
-        // Ralentiza la velocidad de las balas un 25% adicional (pasa del 50% al 25% de velocidad restante, es decir 75% de ralentización) ÚNICAMENTE dentro del área del campo de fuerza
+        // Contorno ROJO mientras la bala está siendo ralentizada; se oculta al salir del campo
+        UpdateSlowRedOutlineVisual(inForceFieldOfAnyPlayer);
+
+        // Ralentiza la velocidad de las balas ÚNICAMENTE dentro del área del campo de fuerza
         currentSlowMultiplier = inForceFieldOfAnyPlayer ? 0.25f : 1.0f;
 
         transform.position += direction.normalized * (speed * currentSlowMultiplier) * Time.deltaTime;

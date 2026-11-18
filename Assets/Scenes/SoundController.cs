@@ -84,6 +84,9 @@ public class SoundController : MonoBehaviour
     private AudioClip generatedTutorialMusic;
     private readonly AudioClip[] generatedTierEntryClips = new AudioClip[4];
     private AudioClip generatedBossEntryClip;
+    private AudioClip generatedBossLaserClip;
+    private AudioClip generatedBossHyperBeamClip;
+    private AudioClip generatedBossHyperWarningClip;
     private readonly float[] lastTierEntryTime = { -10f, -10f, -10f, -10f };
     private float lastPlayerDeathTime = -10f;
 
@@ -144,6 +147,21 @@ public class SoundController : MonoBehaviour
         {
             Destroy(generatedBossEntryClip);
             generatedBossEntryClip = null;
+        }
+        if (generatedBossLaserClip != null)
+        {
+            Destroy(generatedBossLaserClip);
+            generatedBossLaserClip = null;
+        }
+        if (generatedBossHyperBeamClip != null)
+        {
+            Destroy(generatedBossHyperBeamClip);
+            generatedBossHyperBeamClip = null;
+        }
+        if (generatedBossHyperWarningClip != null)
+        {
+            Destroy(generatedBossHyperWarningClip);
+            generatedBossHyperWarningClip = null;
         }
         if (_instance == this) _instance = null;
     }
@@ -617,120 +635,505 @@ public class SoundController : MonoBehaviour
     // NUEVA MÚSICA IN-GAME ("HYPERION VOID" - CYBER COMBAT)
     // ==========================================
 
+    // ==========================================
+    // NUEVA MÚSICA PRINCIPAL DEL JUEGO: ROCK SINFÓNICO / ACCIÓN ÉPICA ("VALKYRIE CHARGE")
+    // (Batería rock doble bombo + taikos bélicos, guitarra eléctrica rítmica y solista,
+    // cuerdas orquestales rápidas, trompas/metales heroicos y coro épico - 148 BPM)
+    // ==========================================
     private static AudioClip CreateGameMusicClip()
     {
-        // F# Menor / Frigio Dominante: oscuridad cinética y tensión constante sin progresiones cliché
-        int[] bassProgression =
-        {
-            42, 42, 38, 40, 42, 42, 43, 41, // Sección A (F#, F#, D, E, F#, F#, G, F)
-            42, 38, 35, 37, 42, 43, 40, 37  // Sección B (F#, D, B, C#, F#, G, E, C#)
-        };
-
-        int[][] powerChords =
-        {
-            new[] { 54, 61, 66 }, // F#5
-            new[] { 54, 61, 67 }, // F#(b9)
-            new[] { 50, 57, 62 }, // Dmaj
-            new[] { 52, 59, 64 }, // Em
-            new[] { 54, 61, 66 }, // F#5
-            new[] { 54, 61, 66 }, // F#5
-            new[] { 55, 62, 67 }, // Gm5
-            new[] { 53, 60, 65 }, // Fm/C#7 tension
-            new[] { 54, 61, 69 }, // F#m
-            new[] { 50, 57, 66 }, // Dmaj7
-            new[] { 47, 54, 62 }, // Bm
-            new[] { 49, 56, 61 }, // C#5
-            new[] { 54, 61, 66 }, // F#5
-            new[] { 55, 62, 69 }, // Gmaj7/9
-            new[] { 52, 59, 67 }, // Em
-            new[] { 49, 55, 61 }  // C#b5 grit
-        };
-
-        int[][] sectionAArps =
-        {
-            new[] { 66, 73, 78, 73, 67, 73, 78, 73 },
-            new[] { 66, 73, 79, 73, 66, 73, 76, 73 },
-            new[] { 62, 69, 74, 69, 64, 69, 76, 69 },
-            new[] { 64, 71, 76, 71, 67, 71, 76, 71 },
-            new[] { 66, 73, 78, 73, 69, 73, 81, 73 },
-            new[] { 66, 73, 78, 79, 78, 73, 67, 73 },
-            new[] { 67, 74, 79, 74, 67, 74, 81, 74 },
-            new[] { 65, 72, 77, 79, 77, 72, 73, 77 }
-        };
-
-        // Melodía principal épica oscura (Sección B: compases 8..15, pasos en corcheas)
-        int[][] sectionBLead =
-        {
-            new[] { 78, -1, 79, 81, -1, 78, 76, -1 },
-            new[] { 74, -1, 78, -1, 81, 79, 78, 76 },
-            new[] { 74, -1, 71, -1, 73, 74, 76, -1 },
-            new[] { 73, -1, 77, -1, 79, -1, 81, -1 },
-            new[] { 85, -1, 83, 81, -1, 79, 81, -1 },
-            new[] { 79, -1, 78, 74, -1, 79, 78, 74 },
-            new[] { 76, -1, 79, -1, 78, 76, 74, 71 },
-            new[] { 73, -1, 77, 79, 81, -1, 85, -1 }
-        };
-
-        return CreateDynamicCombatTrackClip("music_game_v2", 134f, bassProgression, powerChords, sectionAArps, sectionBLead, false, 1.0f);
+        return CreateEpicActionBattleTrackClip("music_game_epic_action_v4", 148f, false);
     }
 
     // ==========================================
-    // MÚSICA FRENÉTICA DESDE OLEADA 3 ("OVERDRIVE")
+    // MÚSICA FRENÉTICA DESDE OLEADA 3: ROCK ORQUESTAL OVERDRIVE ("SUPERNOVA CRUSADE" - 164 BPM)
     // ==========================================
     private static AudioClip CreateWave3FreneticMusicClip()
     {
-        // A Menor / Frigio acelerado a 160 BPM con doble bombo sincopado y arpegios rápidos
-        int[] bassProgression =
+        return CreateEpicActionBattleTrackClip("music_game_wave3_epic_overdrive_v4", 164f, true);
+    }
+
+    private static AudioClip CreateEpicActionBattleTrackClip(string clipName, float bpm, bool overdrive)
+    {
+        const int sampleRate = 44100;
+        float beatDur = 60f / bpm;
+        float barDur = beatDur * 4f;
+        const int barCount = 16;
+        int totalSamples = Mathf.RoundToInt(barDur * barCount * sampleRate);
+
+        float[] dryL = new float[totalSamples];
+        float[] dryR = new float[totalSamples];
+        float[] feedL = new float[totalSamples];
+        float[] feedR = new float[totalSamples];
+
+        // Progresión heroica de acción épica en Mi Menor (Em - C - D - Bm | Em - C - Am - B7 | C - D - Em - G | C - Am - B7 - B7)
+        // En Overdrive sube a Fa# Menor (+2 semitonos) para todavía más tensión y adrenalina
+        int tr = overdrive ? 2 : 0;
+
+        int[] bassRoots =
         {
-            45, 45, 43, 41, 45, 48, 46, 44, // A, A, G, F, A, C, Bb, G#
-            45, 41, 38, 40, 45, 46, 43, 44  // A, F, D, E, A, Bb, G, G#
+            40 + tr, 36 + tr, 38 + tr, 35 + tr, // Sección A1: E, C, D, B
+            40 + tr, 36 + tr, 33 + tr, 35 + tr, // Sección A2: E, C, A, B
+            36 + tr, 38 + tr, 40 + tr, 43 + tr, // Sección B1 (Estribillo épico): C, D, E, G
+            36 + tr, 33 + tr, 35 + tr, 35 + tr  // Sección B2 (Clímax ascendente): C, A, B, B
         };
 
-        int[][] powerChords =
+        int[][] epicChords =
         {
-            new[] { 57, 64, 69 }, // Am
-            new[] { 57, 64, 70 }, // A(b9)
-            new[] { 55, 62, 67 }, // G5
-            new[] { 53, 60, 65 }, // F5
-            new[] { 57, 64, 72 }, // Am
-            new[] { 60, 67, 72 }, // C5
-            new[] { 58, 65, 70 }, // Bb5
-            new[] { 56, 63, 68 }, // G#5
-            new[] { 57, 64, 69 }, // Am
-            new[] { 53, 60, 69 }, // Fmaj7
-            new[] { 50, 57, 65 }, // Dm
-            new[] { 52, 59, 68 }, // E7
-            new[] { 57, 64, 72 }, // Am
-            new[] { 58, 65, 74 }, // Bbmaj7
-            new[] { 55, 62, 70 }, // Gm
-            new[] { 52, 59, 68 }  // E7 tension
+            new[] { 52 + tr, 55 + tr, 59 + tr, 64 + tr }, // Em
+            new[] { 48 + tr, 55 + tr, 60 + tr, 64 + tr }, // C
+            new[] { 50 + tr, 57 + tr, 62 + tr, 66 + tr }, // D
+            new[] { 47 + tr, 54 + tr, 59 + tr, 62 + tr }, // Bm
+            new[] { 52 + tr, 55 + tr, 59 + tr, 64 + tr }, // Em
+            new[] { 48 + tr, 55 + tr, 60 + tr, 64 + tr }, // C
+            new[] { 45 + tr, 52 + tr, 57 + tr, 60 + tr }, // Am
+            new[] { 47 + tr, 54 + tr, 57 + tr, 63 + tr }, // B7
+            new[] { 48 + tr, 55 + tr, 60 + tr, 64 + tr }, // C
+            new[] { 50 + tr, 57 + tr, 62 + tr, 66 + tr }, // D
+            new[] { 52 + tr, 59 + tr, 64 + tr, 67 + tr }, // Em
+            new[] { 55 + tr, 59 + tr, 62 + tr, 67 + tr }, // G
+            new[] { 48 + tr, 55 + tr, 60 + tr, 64 + tr }, // C
+            new[] { 45 + tr, 52 + tr, 57 + tr, 60 + tr }, // Am
+            new[] { 47 + tr, 54 + tr, 59 + tr, 63 + tr }, // B
+            new[] { 47 + tr, 54 + tr, 57 + tr, 63 + tr }  // B7
         };
 
-        int[][] sectionAArps =
+        // Ostinato urgente de cuerdas orquestales rápidas en corcheas (impulso cinematográfico constante)
+        int[][] fastStringOstinato =
         {
-            new[] { 69, 76, 81, 84, 81, 76, 82, 76 },
-            new[] { 69, 76, 82, 81, 79, 76, 81, 76 },
-            new[] { 67, 74, 79, 83, 79, 74, 81, 74 },
-            new[] { 65, 72, 77, 81, 77, 72, 79, 72 },
-            new[] { 69, 76, 81, 84, 86, 84, 81, 76 },
-            new[] { 72, 79, 84, 88, 84, 79, 82, 79 },
-            new[] { 70, 77, 82, 86, 82, 77, 81, 77 },
-            new[] { 68, 74, 80, 83, 86, 83, 80, 74 }
+            new[] { 64, 71, 67, 71, 64, 71, 74, 71 },
+            new[] { 60, 67, 64, 67, 60, 67, 72, 67 },
+            new[] { 62, 69, 66, 69, 62, 69, 74, 69 },
+            new[] { 59, 66, 62, 66, 59, 66, 71, 66 },
+            new[] { 64, 71, 67, 71, 76, 71, 74, 71 },
+            new[] { 60, 67, 64, 67, 72, 67, 71, 67 },
+            new[] { 57, 64, 60, 64, 69, 64, 67, 64 },
+            new[] { 59, 63, 66, 71, 75, 71, 66, 63 }
         };
 
-        int[][] sectionBLead =
+        // Sección A (Compases 0-7): Fanfarria heroica de Metales / Trompas de batalla
+        int[][] heroicBrassMelodyA =
         {
-            new[] { 81, 84, 86, -1, 84, 81, 82, 81 },
-            new[] { 77, 81, 84, -1, 86, 84, 82, 81 },
-            new[] { 77, 81, 86, -1, 84, 81, 79, 77 },
-            new[] { 76, 80, 83, 88, -1, 86, 84, 83 },
-            new[] { 88, -1, 86, 84, 86, 88, 89, -1 },
-            new[] { 86, 84, 82, 81, 82, 86, 84, 81 },
-            new[] { 82, 84, 86, -1, 84, 82, 79, 77 },
-            new[] { 76, 80, 83, 86, 88, -1, 93, -1 }
+            new[] { 71, -1, 74, 76, -1, 74, 71, -1 },
+            new[] { 72, -1, 74, 76, -1, 79, 76, -1 },
+            new[] { 74, -1, 76, 78, -1, 76, 74, 71 },
+            new[] { 71, -1, 66, 69, 71, -1, -1, -1 },
+            new[] { 76, -1, 74, 71, -1, 74, 76, 79 },
+            new[] { 79, -1, 76, 74, 72, -1, 76, -1 },
+            new[] { 76, -1, 74, 72, 71, -1, 69, 71 },
+            new[] { 75, -1, 71, 75, 78, -1, 75, -1 }
         };
 
-        return CreateDynamicCombatTrackClip("music_game_wave3_frenetic", 160f, bassProgression, powerChords, sectionAArps, sectionBLead, true, 1.15f);
+        // Sección B (Compases 8-15): Estribillo épico a toda orquesta (Guitarra solista + Violines + Metales + Coro)
+        int[][] epicChorusLeadB =
+        {
+            new[] { 79, -1, 76, 72, -1, 76, 79, 81 },
+            new[] { 81, -1, 78, 74, -1, 78, 81, 83 },
+            new[] { 83, -1, 81, 79, -1, 76, 79, 83 },
+            new[] { 86, -1, 83, 79, -1, 83, 81, 79 },
+            new[] { 79, 81, 84, -1, 83, 81, 79, 76 },
+            new[] { 81, -1, 79, 76, 72, -1, 76, 79 },
+            new[] { 78, -1, 81, 83, -1, 81, 78, 75 },
+            new[] { 75, 78, 83, -1, 87, -1, 83, -1 }
+        };
+
+        float sixteenthDur = beatDur * 0.25f;
+        float eighthDur = beatDur * 0.5f;
+
+        for (int bar = 0; bar < barCount; bar++)
+        {
+            float barStart = bar * barDur;
+            int root = bassRoots[bar];
+            int[] chord = epicChords[bar];
+            bool isChorus = bar >= 8;
+
+            // 1. BATERÍA DE ACCIÓN ÉPICA: Doble bombo galopante + Taikos bélicos + Caja explosiva + Redobles
+            float[] kickSteps = (overdrive || isChorus)
+                ? new[] { 0f, 0.5f, 0.75f, 1.5f, 2.0f, 2.5f, 2.75f, 3.5f }
+                : new[] { 0f, 0.75f, 1.5f, 2.0f, 2.75f, 3.25f };
+            for (int k = 0; k < kickSteps.Length; k++)
+            {
+                bool accent = (k == 0 || kickSteps[k] == 2.0f);
+                AddAcousticFunkKick(dryL, dryR, sampleRate, totalSamples,
+                    barStart + kickSteps[k] * beatDur, accent ? 0.30f : 0.22f);
+            }
+
+            // Taikos cinematográficos en acentos clave para peso de batalla
+            AddBossWarTaiko(dryL, dryR, feedL, feedR, sampleRate, totalSamples, barStart, isChorus ? 0.24f : 0.18f, true);
+            AddBossWarTaiko(dryL, dryR, feedL, feedR, sampleRate, totalSamples, barStart + beatDur * 2.5f, 0.17f, false);
+
+            // Caja rock/militar potente en tiempos 2 y 4 + redoble épico cada 4 compases
+            AddAcousticFunkSnare(dryL, dryR, feedL, feedR, sampleRate, totalSamples, barStart + beatDur * 1.0f, 0.26f, false);
+            AddAcousticFunkSnare(dryL, dryR, feedL, feedR, sampleRate, totalSamples, barStart + beatDur * 3.0f, 0.28f, false);
+            if (bar % 4 == 3)
+            {
+                for (int f = 0; f < 4; f++)
+                {
+                    AddBossWarTaiko(dryL, dryR, feedL, feedR, sampleRate, totalSamples,
+                        barStart + (3.25f + f * 0.1875f) * beatDur, 0.17f + f * 0.03f, false);
+                    AddAcousticFunkSnare(dryL, dryR, feedL, feedR, sampleRate, totalSamples,
+                        barStart + (3.25f + f * 0.1875f) * beatDur, 0.13f + f * 0.035f, f < 2);
+                }
+            }
+
+            // Hi-hat / platillo agresivo en corcheas + crash cinematográfico cada 4 compases
+            for (int h = 0; h < 8; h++)
+            {
+                bool openHat = isChorus && (h % 2 == 0);
+                AddAcousticHiHat(dryL, dryR, sampleRate, totalSamples,
+                    barStart + h * eighthDur,
+                    openHat ? 0.12f : ((h % 2 == 0) ? 0.105f : 0.075f),
+                    openHat, h % 2 == 0 ? 0.35f : 0.65f);
+            }
+            if (bar % 4 == 0)
+            {
+                AddBossAnvilCrash(dryL, dryR, feedL, feedR, sampleRate, totalSamples, barStart, isChorus ? 0.15f : 0.11f);
+            }
+
+            // 2. BAJO ROCK ELÉCTRICO EN GALOPE (corcheas y semicorcheas imparables)
+            int[] bassPattern = { 0, 2, 3, 4, 6, 8, 10, 11, 12, 14 };
+            for (int b = 0; b < bassPattern.Length; b++)
+            {
+                int midi = (b == 8 || b == 9) ? root + 7 : ((b == 4) ? root + 12 : root);
+                AddAcousticSlapBass(dryL, dryR, sampleRate, totalSamples,
+                    barStart + bassPattern[b] * sixteenthDur, sixteenthDur * 1.4f, midi, 0.24f, b == 0 || b == 5);
+            }
+
+            // 3. GUITARRA ELÉCTRICA RÍTMICA ROCK CON CRUNCH (galope épico sin saturar la mezcla)
+            int[] chugPattern = { 1, 0, 1, 1, 1, 0, 1, 0, 1, 0, 1, 1, 1, 0, 1, 1 };
+            for (int step = 0; step < 16; step++)
+            {
+                if (chugPattern[step] == 0) continue;
+                bool openPower = (step == 0 || step == 8 || (isChorus && step == 12));
+                int gNote = (step >= 14) ? root + 7 : root;
+                float gDur = openPower ? sixteenthDur * 1.6f : sixteenthDur * 0.9f;
+                AddBossOverdriveGuitar(dryL, dryR, sampleRate, totalSamples,
+                    barStart + step * sixteenthDur, gDur, gNote,
+                    openPower ? (isChorus ? 0.115f : 0.095f) : 0.072f, openPower);
+            }
+
+            // 4. CUERDAS ORQUESTALES SPICCATO URGENTES (motor cinematográfico rápido en corcheas)
+            int[] ostinato = fastStringOstinato[bar % 8];
+            for (int s = 0; s < ostinato.Length; s++)
+            {
+                float pan = (s % 2 == 0) ? 0.24f : 0.76f;
+                AddBossStringSpiccato(dryL, dryR, feedL, feedR, sampleRate, totalSamples,
+                    barStart + s * eighthDur, eighthDur * 0.88f, ostinato[s] + tr, pan, isChorus ? 0.085f : 0.095f);
+            }
+
+            // 5. METALES ORQUESTALES DE FONDO + CORO ÉPICO EN EL ESTRIBILLO (Sección B)
+            if (isChorus)
+            {
+                // Acordes heroicos de coro épico ("Aah") + potencia armónica
+                AddBossFormantChoir(dryL, dryR, feedL, feedR, sampleRate, totalSamples,
+                    barStart, barDur, new[] { chord[0] + 12, chord[2] + 12 }, true, 0.068f);
+
+                // Golpes de metales graves marcando cada cambio de acorde
+                AddBrassHornNote(dryL, dryR, feedL, feedR, sampleRate, totalSamples, barStart, beatDur * 1.6f, chord[0], 0.30f, 0.085f);
+                AddBrassHornNote(dryL, dryR, feedL, feedR, sampleRate, totalSamples, barStart, beatDur * 1.6f, chord[2], 0.70f, 0.085f);
+            }
+
+            // 6. MELODÍA HEROICA PRINCIPAL:
+            // Sección A = Fanfarria épica de Trompas/Metales + Violín | Sección B = Guitarra Solista Heroica + Violines + Metales
+            if (!isChorus)
+            {
+                int[] melody = heroicBrassMelodyA[bar];
+                for (int s = 0; s < melody.Length; s++)
+                {
+                    if (melody[s] < 0) continue;
+                    bool hold = (s + 1 < melody.Length && melody[s + 1] < 0);
+                    float dur = hold ? (eighthDur * 1.9f) : (eighthDur * 0.92f);
+                    float noteT = barStart + s * eighthDur;
+                    int noteMidi = melody[s] + tr;
+
+                    AddBrassHornNote(dryL, dryR, feedL, feedR, sampleRate, totalSamples, noteT, dur, noteMidi, 0.62f, 0.125f);
+                    AddExpressiveViolinNote(dryL, dryR, feedL, feedR, sampleRate, totalSamples, noteT, dur, noteMidi, 0.38f, 0.078f);
+                }
+            }
+            else
+            {
+                int[] chorus = epicChorusLeadB[bar - 8];
+                for (int s = 0; s < chorus.Length; s++)
+                {
+                    if (chorus[s] < 0) continue;
+                    bool hold = (s + 1 < chorus.Length && chorus[s + 1] < 0);
+                    float dur = hold ? (eighthDur * 1.95f) : (eighthDur * 0.96f);
+                    float noteT = barStart + s * eighthDur;
+                    int noteMidi = chorus[s] + tr;
+
+                    // Dúo épico de Guitarra Solista + Violines en octava + Metales
+                    AddBossSpaceHeroLead(dryL, dryR, feedL, feedR, sampleRate, totalSamples, noteT, dur, noteMidi, 0.095f);
+                    AddExpressiveViolinNote(dryL, dryR, feedL, feedR, sampleRate, totalSamples, noteT, dur, noteMidi, 0.30f, 0.105f);
+                    AddBrassHornNote(dryL, dryR, feedL, feedR, sampleRate, totalSamples, noteT, dur, noteMidi - 12, 0.72f, 0.090f);
+                }
+            }
+        }
+
+        return FinalizeStereoLoopClip(clipName, dryL, dryR, feedL, feedR, sampleRate, totalSamples, beatDur, 0.86f);
+    }
+
+    private static void AddAcousticFunkKick(float[] dryL, float[] dryR, int sampleRate, int totalSamples, float startTime, float gain)
+    {
+        int startSample = Mathf.RoundToInt(startTime * sampleRate);
+        int count = Mathf.RoundToInt(0.24f * sampleRate);
+        float phase = 0f;
+        const float twoPi = Mathf.PI * 2f;
+
+        for (int i = 0; i < count; i++)
+        {
+            float t = i / (float)sampleRate;
+            float env = Mathf.Min(1f, t / 0.004f) * Mathf.Exp(-t * 14.5f);
+            float freq = 48f + 98f * Mathf.Exp(-t * 32f);
+            phase += twoPi * freq / sampleRate;
+            float beater = DeterministicNoise(startSample + i) * Mathf.Exp(-t * 140f) * 0.22f;
+            float s = (Mathf.Sin(phase) * 0.88f + Mathf.Sin(phase * 2f) * 0.16f + beater) * env * gain;
+
+            int idx = (startSample + i) % totalSamples;
+            dryL[idx] += s;
+            dryR[idx] += s;
+        }
+    }
+
+    private static void AddAcousticFunkSnare(
+        float[] dryL, float[] dryR, float[] feedL, float[] feedR,
+        int sampleRate, int totalSamples, float startTime, float gain, bool ghost)
+    {
+        int startSample = Mathf.RoundToInt(startTime * sampleRate);
+        float dur = ghost ? 0.09f : 0.18f;
+        int count = Mathf.RoundToInt(dur * sampleRate);
+        float phase = 0f;
+        float lpNoise = 0f;
+        const float twoPi = Mathf.PI * 2f;
+
+        for (int i = 0; i < count; i++)
+        {
+            float t = i / (float)sampleRate;
+            float bodyEnv = Mathf.Exp(-t * (ghost ? 34f : 22f));
+            float wireEnv = Mathf.Exp(-t * (ghost ? 28f : 15f));
+            float freq = 195f + 75f * Mathf.Exp(-t * 48f);
+            phase += twoPi * freq / sampleRate;
+
+            float n = DeterministicNoise(startSample * 7 + i * 3);
+            lpNoise = Mathf.Lerp(lpNoise, n, 0.42f);
+            float s = (Mathf.Sin(phase) * 0.48f * bodyEnv + (n - lpNoise * 0.35f) * 0.56f * wireEnv) * gain;
+
+            int idx = (startSample + i) % totalSamples;
+            dryL[idx] += s * 0.96f;
+            dryR[idx] += s * 1.04f;
+            if (!ghost)
+            {
+                feedL[idx] += s * 0.24f;
+                feedR[idx] += s * 0.24f;
+            }
+        }
+    }
+
+    private static void AddAcousticHiHat(
+        float[] dryL, float[] dryR, int sampleRate, int totalSamples,
+        float startTime, float gain, bool openHat, float pan)
+    {
+        int startSample = Mathf.RoundToInt(startTime * sampleRate);
+        float dur = openHat ? 0.26f : 0.065f;
+        int count = Mathf.RoundToInt(dur * sampleRate);
+        float prev = 0f;
+
+        for (int i = 0; i < count; i++)
+        {
+            float t = i / (float)sampleRate;
+            float env = Mathf.Min(1f, t / 0.002f) * Mathf.Exp(-t * (openHat ? 11.5f : 48f));
+            float n = DeterministicNoise(startSample * 13 + i * 5);
+            float hp = (n - prev) * 0.65f;
+            prev = n;
+            float s = hp * env * gain;
+
+            int idx = (startSample + i) % totalSamples;
+            dryL[idx] += s * (1f - pan);
+            dryR[idx] += s * pan;
+        }
+    }
+
+    private static void AddAcousticSlapBass(
+        float[] dryL, float[] dryR, int sampleRate, int totalSamples,
+        float startTime, float duration, int midi, float gain, bool slapPop)
+    {
+        int startSample = Mathf.RoundToInt(startTime * sampleRate);
+        int count = Mathf.RoundToInt(duration * sampleRate);
+        float freq = MidiToHz(midi);
+        float phase = 0f;
+        const float twoPi = Mathf.PI * 2f;
+
+        for (int i = 0; i < count; i++)
+        {
+            float t = i / (float)sampleRate;
+            float attack = Mathf.Min(1f, t / 0.005f);
+            float release = Mathf.Clamp01((duration - t) / 0.035f);
+            float env = attack * release * Mathf.Exp(-t * (slapPop ? 5.8f : 3.2f));
+            float bright = Mathf.Exp(-t * (slapPop ? 18f : 12f));
+
+            phase += twoPi * freq / sampleRate;
+            float body = Mathf.Sin(phase) * 0.78f
+                       + Mathf.Sin(phase * 2f) * (0.28f + bright * 0.24f)
+                       + Mathf.Sin(phase * 3f) * (0.10f + bright * (slapPop ? 0.28f : 0.14f))
+                       + Mathf.Sin(phase * 4f) * (bright * (slapPop ? 0.18f : 0.06f));
+
+            float thumbClick = slapPop ? (DeterministicNoise(startSample + i) * Mathf.Exp(-t * 160f) * 0.24f) : 0f;
+            float s = (body + thumbClick) * env * gain;
+
+            int idx = (startSample + i) % totalSamples;
+            dryL[idx] += s;
+            dryR[idx] += s;
+        }
+    }
+
+    private static void AddRhodesElectricPianoChord(
+        float[] dryL, float[] dryR, float[] feedL, float[] feedR,
+        int sampleRate, int totalSamples, float startTime, float duration, int[] chord, float gain)
+    {
+        int startSample = Mathf.RoundToInt(startTime * sampleRate);
+        int count = Mathf.RoundToInt(duration * sampleRate);
+        const float twoPi = Mathf.PI * 2f;
+
+        for (int n = 0; n < chord.Length; n++)
+        {
+            float freq = MidiToHz(chord[n]);
+            float phase = 0f;
+            float pan = Mathf.Lerp(0.30f, 0.70f, chord.Length > 1 ? (float)n / (chord.Length - 1) : 0.5f);
+            int noteOffset = n * 240; // Ligero arpegiado natural de piano (~5ms por dedo)
+
+            for (int i = 0; i < count; i++)
+            {
+                float t = i / (float)sampleRate;
+                float attack = Mathf.Min(1f, t / 0.008f);
+                float release = Mathf.Clamp01((duration - t) / 0.07f);
+                float env = attack * release * Mathf.Exp(-t * 2.1f);
+                float tineEnv = Mathf.Exp(-t * 22f);
+
+                phase += twoPi * freq / sampleRate;
+                float tremolo = 0.88f + 0.12f * Mathf.Sin(twoPi * 4.5f * t + n);
+                // Tono cálido de piano Rhodes: fundamental pura + 2º armónico suave + golpe metálico suave de tine
+                float tone = (Mathf.Sin(phase) * 0.78f
+                            + Mathf.Sin(phase * 2f) * 0.16f
+                            + Mathf.Sin(phase * 7f) * 0.12f * tineEnv) * env * tremolo * gain;
+
+                int idx = (startSample + noteOffset + i) % totalSamples;
+                dryL[idx] += tone * (1f - pan);
+                dryR[idx] += tone * pan;
+                feedL[idx] += tone * (1f - pan) * 0.22f;
+                feedR[idx] += tone * pan * 0.22f;
+            }
+        }
+    }
+
+    private static void AddPluckedAcousticGuitarNote(
+        float[] dryL, float[] dryR, float[] feedL, float[] feedR,
+        int sampleRate, int totalSamples, float startTime, float duration, int midi, float pan, float gain)
+    {
+        int startSample = Mathf.RoundToInt(startTime * sampleRate);
+        int count = Mathf.RoundToInt(duration * sampleRate);
+        float freq = MidiToHz(midi);
+        float phase = 0f;
+        const float twoPi = Mathf.PI * 2f;
+
+        for (int i = 0; i < count; i++)
+        {
+            float t = i / (float)sampleRate;
+            float attack = Mathf.Min(1f, t / 0.0035f);
+            float release = Mathf.Clamp01((duration - t) / 0.03f);
+            float env = attack * release * Mathf.Exp(-t * 4.8f);
+            float harmDecay = Mathf.Exp(-t * 14f);
+
+            phase += twoPi * freq / sampleRate;
+            // Timbre cálido de cuerda pulsada (acústica/nylon-funk)
+            float wave = Mathf.Sin(phase) * 0.62f
+                       + Mathf.Sin(phase * 2f) * (0.30f + harmDecay * 0.18f)
+                       + Mathf.Sin(phase * 3f) * (0.14f + harmDecay * 0.16f)
+                       + Mathf.Sin(phase * 4f) * (0.06f + harmDecay * 0.12f)
+                       + Mathf.Sin(phase * 5f) * (harmDecay * 0.08f);
+            float pick = DeterministicNoise(startSample + i * 2) * Mathf.Exp(-t * 210f) * 0.18f;
+            float s = (wave + pick) * env * gain;
+
+            int idx = (startSample + i) % totalSamples;
+            dryL[idx] += s * (1f - pan);
+            dryR[idx] += s * pan;
+            feedL[idx] += s * (1f - pan) * 0.18f;
+            feedR[idx] += s * pan * 0.18f;
+        }
+    }
+
+    private static void AddBrassHornNote(
+        float[] dryL, float[] dryR, float[] feedL, float[] feedR,
+        int sampleRate, int totalSamples, float startTime, float duration, int midi, float pan, float gain)
+    {
+        int startSample = Mathf.RoundToInt(startTime * sampleRate);
+        int count = Mathf.RoundToInt(duration * sampleRate);
+        float baseFreq = MidiToHz(midi);
+        float phase1 = 0f;
+        float phase2 = 0f;
+        const float twoPi = Mathf.PI * 2f;
+
+        for (int i = 0; i < count; i++)
+        {
+            float t = i / (float)sampleRate;
+            float attack = Mathf.Min(1f, t / 0.026f);
+            float release = Mathf.Clamp01((duration - t) / 0.045f);
+            float env = attack * release;
+            // Apertura progresiva de armónicos típica de trompeta/saxo ("brass bloom")
+            float bloom = Mathf.Clamp01(t / 0.065f) * Mathf.Exp(-t * 1.4f);
+            float vib = 1f + Mathf.Sin(twoPi * 5.6f * t) * 0.0035f * Mathf.Clamp01(t / 0.12f);
+
+            phase1 += twoPi * (baseFreq * vib) / sampleRate;
+            phase2 += twoPi * (baseFreq * 1.0035f * vib) / sampleRate;
+
+            float horn1 = Mathf.Sin(phase1) * 0.56f
+                        + Mathf.Sin(phase1 * 2f) * (0.28f + bloom * 0.16f)
+                        + Mathf.Sin(phase1 * 3f) * (0.16f + bloom * 0.18f)
+                        + Mathf.Sin(phase1 * 4f) * (0.06f + bloom * 0.12f)
+                        + Mathf.Sin(phase1 * 5f) * (bloom * 0.08f);
+            float horn2 = Mathf.Sin(phase2) * 0.45f + Mathf.Sin(phase2 * 2f) * 0.22f + Mathf.Sin(phase2 * 3f) * 0.12f;
+
+            float s = (horn1 * 0.65f + horn2 * 0.35f) * env * gain;
+            int idx = (startSample + i) % totalSamples;
+            dryL[idx] += s * (1f - pan);
+            dryR[idx] += s * pan;
+            feedL[idx] += s * (1f - pan) * 0.25f;
+            feedR[idx] += s * pan * 0.25f;
+        }
+    }
+
+    private static void AddExpressiveViolinNote(
+        float[] dryL, float[] dryR, float[] feedL, float[] feedR,
+        int sampleRate, int totalSamples, float startTime, float duration, int midi, float pan, float gain)
+    {
+        int startSample = Mathf.RoundToInt(startTime * sampleRate);
+        int count = Mathf.RoundToInt(duration * sampleRate);
+        float baseFreq = MidiToHz(midi);
+        float phase = 0f;
+        const float twoPi = Mathf.PI * 2f;
+
+        for (int i = 0; i < count; i++)
+        {
+            float t = i / (float)sampleRate;
+            float attack = Mathf.Min(1f, t / 0.045f);
+            float release = Mathf.Clamp01((duration - t) / 0.055f);
+            float env = attack * release;
+            float vibDepth = 0.0055f * Mathf.Clamp01((t - 0.04f) / 0.10f);
+            float vib = 1f + Mathf.Sin(twoPi * 6.0f * t) * vibDepth;
+
+            phase += twoPi * (baseFreq * vib) / sampleRate;
+            // Timbre cálido de violín/cuerda frotada con armónicos naturales balanceados
+            float bowed = Mathf.Sin(phase) * 0.54f
+                        + Mathf.Sin(phase * 2f) * 0.28f
+                        + Mathf.Sin(phase * 3f) * 0.17f
+                        + Mathf.Sin(phase * 4f) * 0.09f
+                        + Mathf.Sin(phase * 5f) * 0.05f;
+            float s = bowed * env * gain;
+
+            int idx = (startSample + i) % totalSamples;
+            dryL[idx] += s * (1f - pan);
+            dryR[idx] += s * pan;
+            feedL[idx] += s * (1f - pan) * 0.30f;
+            feedR[idx] += s * pan * 0.30f;
+        }
     }
 
     // ==========================================
@@ -1780,7 +2183,240 @@ public class SoundController : MonoBehaviour
     public void PlayEnemyDeathSfx() => PlayClip(ref enemyDeathSfx, "Audio/enemy_explosion", 0.85f, 0.92f, 1.08f);
     public void PlayPlayerHitSfx() => PlayClip(ref playerHitSfx, "Audio/player_hit", 1.0f, 0.95f, 1.05f);
     public void PlayTier4LaserSfx() => PlayClip(ref tier4LaserSfx, "Audio/tier4_laser", 0.85f, 0.96f, 1.04f);
-    public void PlayBossLaserSfx() => PlayClip(ref bossLaserSfx, "Audio/boss_laser", 1.0f, 0.98f, 1.02f);
+
+    /// <summary>
+    /// Láser normal del Jefe: rayo de plasma profundo, nítido y limpio (sin saturación),
+    /// claramente más imponente que el láser de los enemigos Tier 4.
+    /// </summary>
+    public void PlayBossLaserSfx()
+    {
+        if (sfxSource == null) InitAudioSources();
+        if (generatedBossLaserClip == null) generatedBossLaserClip = CreateCleanBossLaserClip();
+        if (generatedBossLaserClip != null)
+        {
+            sfxSource.pitch = UnityEngine.Random.Range(0.97f, 1.03f);
+            sfxSource.PlayOneShot(generatedBossLaserClip, 0.92f * sfxVolume);
+        }
+    }
+
+    /// <summary>
+    /// Hiper Rayo de Fase 2: sonido épico de súper cañón orbital / súper rayo de energía pura,
+    /// con caída sub-grave limpia, cuerpo armónico envolvente y cola de plasma sin saturación.
+    /// </summary>
+    public void PlayBossHyperBeamSfx()
+    {
+        if (sfxSource == null) InitAudioSources();
+        if (generatedBossHyperBeamClip == null) generatedBossHyperBeamClip = CreateCleanHyperBeamClip();
+        if (generatedBossHyperBeamClip != null)
+        {
+            sfxSource.pitch = 1.0f;
+            sfxSource.PlayOneShot(generatedBossHyperBeamClip, 0.98f * sfxVolume);
+        }
+    }
+
+    private static AudioClip CreateCleanBossLaserClip()
+    {
+        const int sampleRate = 44100;
+        const float duration = 2.65f;
+        int totalSamples = Mathf.RoundToInt(duration * sampleRate);
+        float[] samples = new float[totalSamples];
+
+        const float twoPi = Mathf.PI * 2f;
+        float subPhase = 0f;
+        float corePhase = 0f;
+        float fifthPhase = 0f;
+        float sweepPhase = 0f;
+        float lp1 = 0f;
+        float lp2 = 0f;
+        float peak = 0.001f;
+
+        for (int i = 0; i < totalSamples; i++)
+        {
+            float t = i / (float)sampleRate;
+            float u = Mathf.Clamp01(t / duration);
+
+            float envIn = Mathf.Clamp01(t / 0.025f);
+            float envOut = Mathf.Clamp01((duration - t) / 0.36f);
+            float env = envIn * (0.5f - 0.5f * Mathf.Cos(envOut * Mathf.PI));
+            float ignition = Mathf.Exp(-t * 11f);
+
+            // Barrido inicial limpio de ignición láser (980 Hz -> 185 Hz) + cuerpo de plasma estable
+            float subFreq = 68f + 42f * Mathf.Exp(-t * 10f) - u * 6f;
+            float coreFreq = 136f + Mathf.Sin(twoPi * 6.5f * t) * 3.5f - u * 10f;
+            float fifthFreq = coreFreq * 1.5f;
+            float sweepFreq = 190f + 820f * Mathf.Exp(-t * 16f);
+
+            subPhase += twoPi * subFreq / sampleRate;
+            corePhase += twoPi * coreFreq / sampleRate;
+            fifthPhase += twoPi * fifthFreq / sampleRate;
+            sweepPhase += twoPi * sweepFreq / sampleRate;
+            if (subPhase > twoPi) subPhase -= twoPi;
+            if (corePhase > twoPi) corePhase -= twoPi;
+            if (fifthPhase > twoPi) fifthPhase -= twoPi;
+            if (sweepPhase > twoPi) sweepPhase -= twoPi;
+
+            // Soplo sedoso de plasma doblemente filtrado (suave, nunca áspero)
+            float n = DeterministicNoise(i * 7 + 19);
+            lp1 = Mathf.Lerp(lp1, n, 0.14f);
+            lp2 = Mathf.Lerp(lp2, lp1, 0.14f);
+
+            float pulse = 0.86f + 0.14f * Mathf.Sin(twoPi * 12f * t);
+            float sub = Mathf.Sin(subPhase) * 0.48f;
+            float core = (Mathf.Sin(corePhase) * 0.34f + Mathf.Sin(corePhase * 2f) * 0.14f + Mathf.Sin(fifthPhase) * 0.18f) * pulse;
+            float sweep = Mathf.Sin(sweepPhase + Mathf.Sin(corePhase) * 0.45f) * (0.10f + ignition * 0.42f);
+            float air = lp2 * (0.16f + ignition * 0.24f);
+
+            float v = (sub + core + sweep + air) * env;
+            samples[i] = v;
+            float a = Mathf.Abs(v);
+            if (a > peak) peak = a;
+        }
+
+        // Normalización limpia con margen seguro (cero clipping ni saturación)
+        float norm = 0.68f / peak;
+        for (int i = 0; i < totalSamples; i++) samples[i] *= norm;
+
+        AudioClip clip = AudioClip.Create("boss_clean_laser_sfx", totalSamples, 1, sampleRate, false);
+        clip.SetData(samples, 0);
+        return clip;
+    }
+
+    private static AudioClip CreateCleanHyperBeamClip()
+    {
+        const int sampleRate = 44100;
+        const float duration = 2.95f;
+        int totalSamples = Mathf.RoundToInt(duration * sampleRate);
+        float[] samples = new float[totalSamples];
+
+        const float twoPi = Mathf.PI * 2f;
+        float subPhase = 0f;
+        float rootPhase = 0f;
+        float fifthPhase = 0f;
+        float octPhase = 0f;
+        float shimmerPhase = 0f;
+        float blastSweepPhase = 0f;
+        float lpAir1 = 0f;
+        float lpAir2 = 0f;
+        float peak = 0.001f;
+
+        for (int i = 0; i < totalSamples; i++)
+        {
+            float t = i / (float)sampleRate;
+            float u = Mathf.Clamp01(t / duration);
+
+            // Envolvente de súper rayo: estallido instantáneo + flujo continuo masivo + apagado de turbina
+            float envIn = Mathf.Clamp01(t / 0.032f);
+            float envOut = Mathf.Clamp01((duration - t) / 0.48f);
+            float env = envIn * (0.5f - 0.5f * Mathf.Cos(envOut * Mathf.PI));
+            float impact = Mathf.Exp(-t * 6.5f);
+            float tailDrop = Mathf.Pow(Mathf.Clamp01((u - 0.78f) / 0.22f), 2f);
+
+            // Caída sub-grave limpia tipo cañón orbital + acorde energético majestuoso (fundamental + quinta + octava + brillo)
+            float subFreq = (48f + 78f * Mathf.Exp(-t * 7.5f)) * (1f - tailDrop * 0.28f);
+            float rootFreq = 96f * (1f - tailDrop * 0.22f) + Mathf.Sin(twoPi * 5.2f * t) * 2.2f;
+            float fifthFreq = rootFreq * 1.498f;
+            float octFreq = rootFreq * 2.004f;
+            float shimmerFreq = 480f + 160f * Mathf.Sin(twoPi * 3.1f * t) + impact * 620f;
+            float blastFreq = 160f + 1280f * Mathf.Exp(-t * 11f);
+
+            subPhase += twoPi * subFreq / sampleRate;
+            rootPhase += twoPi * rootFreq / sampleRate;
+            fifthPhase += twoPi * fifthFreq / sampleRate;
+            octPhase += twoPi * octFreq / sampleRate;
+            shimmerPhase += twoPi * shimmerFreq / sampleRate;
+            blastSweepPhase += twoPi * blastFreq / sampleRate;
+
+            if (subPhase > twoPi) subPhase -= twoPi;
+            if (rootPhase > twoPi) rootPhase -= twoPi;
+            if (fifthPhase > twoPi) fifthPhase -= twoPi;
+            if (octPhase > twoPi) octPhase -= twoPi;
+            if (shimmerPhase > twoPi) shimmerPhase -= twoPi;
+            if (blastSweepPhase > twoPi) blastSweepPhase -= twoPi;
+
+            // Flujo de aire/plasma filtrado suavemente (efecto chorro de energía colosal sin estática dura)
+            float n = DeterministicNoise(i * 11 + 53);
+            lpAir1 = Mathf.Lerp(lpAir1, n, 0.16f);
+            lpAir2 = Mathf.Lerp(lpAir2, lpAir1, 0.12f);
+
+            float beamUndulation = 0.84f + 0.16f * Mathf.Sin(twoPi * 9.5f * t);
+            float sub = Mathf.Sin(subPhase) * (0.56f + impact * 0.25f);
+            float chordBeam = (Mathf.Sin(rootPhase) * 0.34f
+                             + Mathf.Sin(fifthPhase) * 0.24f
+                             + Mathf.Sin(octPhase) * 0.18f
+                             + Mathf.Sin(octPhase * 1.5f) * 0.08f) * beamUndulation;
+            float crystalline = Mathf.Sin(shimmerPhase + Mathf.Sin(rootPhase) * 0.35f) * (0.11f + impact * 0.14f);
+            float blast = Mathf.Sin(blastSweepPhase) * impact * 0.36f;
+            float plasmaFlow = lpAir2 * (0.26f + impact * 0.30f);
+
+            float v = (sub + chordBeam + crystalline + blast + plasmaFlow) * env;
+            samples[i] = v;
+            float a = Mathf.Abs(v);
+            if (a > peak) peak = a;
+        }
+
+        // Normalización limpia y controlada (cero saturación)
+        float norm = 0.74f / peak;
+        for (int i = 0; i < totalSamples; i++) samples[i] *= norm;
+
+        AudioClip clip = AudioClip.Create("boss_clean_hyper_beam_sfx", totalSamples, 1, sampleRate, false);
+        clip.SetData(samples, 0);
+        return clip;
+    }
+
+    /// <summary>
+    /// Alarma/carga limpia previa de 3 segundos para el Hiper Rayo de Fase 2.
+    /// </summary>
+    public void PlayBossHyperWarningSfx()
+    {
+        if (entryAudioSource == null) InitAudioSources();
+        if (generatedBossHyperWarningClip == null) generatedBossHyperWarningClip = CreateBossHyperWarningClip();
+        if (generatedBossHyperWarningClip != null)
+        {
+            entryAudioSource.PlayOneShot(generatedBossHyperWarningClip, 0.55f * sfxVolume);
+        }
+    }
+
+    private static AudioClip CreateBossHyperWarningClip()
+    {
+        const int sampleRate = 44100;
+        const float duration = 2.95f;
+        int totalSamples = Mathf.RoundToInt(duration * sampleRate);
+        float[] samples = new float[totalSamples];
+
+        const float twoPi = Mathf.PI * 2f;
+        float humPhase = 0f;
+        float pingPhase = 0f;
+
+        for (int i = 0; i < totalSamples; i++)
+        {
+            float t = i / (float)sampleRate;
+            float u = Mathf.Clamp01(t / duration);
+
+            // Carga energética limpia (senoidal suave) + pulsos de alerta nítidos sin distorsión
+            float humFreq = Mathf.Lerp(95f, 280f, u * u);
+            float pulseRate = Mathf.Lerp(2.2f, 7.5f, u);
+            float pulseEnv = 0.25f + 0.75f * Mathf.Pow(0.5f + 0.5f * Mathf.Sin(twoPi * pulseRate * t), 2f);
+            float pingFreq = Mathf.Lerp(440f, 740f, u);
+
+            humPhase += twoPi * humFreq / sampleRate;
+            pingPhase += twoPi * pingFreq / sampleRate;
+            if (humPhase > twoPi) humPhase -= twoPi;
+            if (pingPhase > twoPi) pingPhase -= twoPi;
+
+            float envIn = Mathf.Clamp01(t / 0.08f);
+            float envOut = Mathf.Clamp01((duration - t) / 0.08f);
+            float hum = Mathf.Sin(humPhase) * 0.42f + Mathf.Sin(humPhase * 2f) * 0.14f;
+            float ping = Mathf.Sin(pingPhase) * 0.22f * pulseEnv;
+
+            float v = (hum * (0.45f + 0.55f * u) + ping) * envIn * envOut;
+            samples[i] = Mathf.Clamp(v * 0.70f, -0.80f, 0.80f);
+        }
+
+        AudioClip clip = AudioClip.Create("boss_hyper_warning_sfx", totalSamples, 1, sampleRate, false);
+        clip.SetData(samples, 0);
+        return clip;
+    }
+
     public void PlayBossDeathSfx() => PlayClip(ref bossDeathSfx, "Audio/boss_death", 1.15f);
 
     /// <summary>

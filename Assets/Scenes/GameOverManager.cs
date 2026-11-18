@@ -123,7 +123,8 @@ public class GameOverManager : MonoBehaviour
     {
         transform.SetAsLastSibling();
         lastSubmittedEntry = null;
-        if (GameManager.Instance != null && GameManager.Instance.IsPlayer2Joined) isCoopRun = true;
+        if (GameManager.Instance != null) isCoopRun = GameManager.Instance.IsPlayer2Joined;
+        LoadLeaderboard();
 
         EnsureModernUI();
 
@@ -155,6 +156,7 @@ public class GameOverManager : MonoBehaviour
         currentRunScore = score;
         currentRunTime = timeSeconds;
         lastSubmittedEntry = null;
+        LoadLeaderboard();
 
         gameObject.SetActive(true);
         EnsureModernUI();
@@ -954,8 +956,8 @@ public class GameOverManager : MonoBehaviour
         if (leaderboardHeaderText != null)
         {
             leaderboardHeaderText.text = isCoopRun
-                ? "<color=#38BDF8><b>CLASIFICACIÓN DE ESCUADRONES</b></color>  <color=#FBBF24>// 2 JUGADORES</color>"
-                : "<color=#38BDF8><b>CLASIFICACIÓN DE PILOTOS</b></color>  <color=#64748B>// TOP 10</color>";
+                ? "<color=#38BDF8><b>CLASIFICACIÓN 2 JUGADORES</b></color>  <color=#FBBF24>// CO-OP TOP 10</color>"
+                : "<color=#38BDF8><b>CLASIFICACIÓN 1 JUGADOR</b></color>  <color=#94A3B8>// SOLO TOP 10</color>";
         }
 
         if (leaderboardLegendText != null)
@@ -1071,8 +1073,17 @@ public class GameOverManager : MonoBehaviour
             };
         }
 
-        LeaderboardData targetBoard = isCoopRun ? coopLeaderboard : leaderboard;
-        if (targetBoard == null) targetBoard = new LeaderboardData();
+        LeaderboardData targetBoard;
+        if (isCoopRun)
+        {
+            if (coopLeaderboard == null) coopLeaderboard = new LeaderboardData();
+            targetBoard = coopLeaderboard;
+        }
+        else
+        {
+            if (leaderboard == null) leaderboard = new LeaderboardData();
+            targetBoard = leaderboard;
+        }
 
         lastSubmittedEntry = newEntry;
         targetBoard.entries.Add(newEntry);

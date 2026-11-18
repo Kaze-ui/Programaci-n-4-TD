@@ -520,10 +520,10 @@ public class PlayerController : MonoBehaviour
         EnsureHitboxDotVisuals();
         EnsureShieldBarVisuals();
 
-        // 1. Detección de balas dentro del área del campo de fuerza (ForceFieldRadius = 125f)
-        bool inForceField = ((Time.time - lastBulletVeryCloseTime <= 0.12f) || (Time.time - lastThreatInSlowRadiusTime <= 0.12f)) && HasShield;
+        // 1. Detección de balas dentro del área del campo de fuerza (funciona con Y sin escudo activo)
+        bool inForceField = (Time.time - lastBulletVeryCloseTime <= 0.12f) || (Time.time - lastThreatInSlowRadiusTime <= 0.12f);
 
-        // 2. Escudo circular azul (aparece SOLO cuando las balas entran al campo de fuerza, se desvanece si se queda sin escudo)
+        // 2. Escudo circular: azul si tiene escudo activo, GRIS si no tiene escudo pero está ralentizando balas cercanas
         float targetFieldAlpha = inForceField ? 0.95f : 0f;
         forceFieldAlpha = Mathf.MoveTowards(forceFieldAlpha, targetFieldAlpha, Time.deltaTime * 7.5f);
 
@@ -533,7 +533,9 @@ public class PlayerController : MonoBehaviour
             {
                 if (!forceFieldObj.activeSelf) forceFieldObj.SetActive(true);
                 float pulse = 0.86f + 0.14f * Mathf.Sin(Time.time * 16f);
-                forceFieldSr.color = new Color(0.25f, 0.85f, 1.0f, forceFieldAlpha * pulse);
+                forceFieldSr.color = HasShield
+                    ? new Color(0.25f, 0.85f, 1.0f, forceFieldAlpha * pulse)          // Escudo azul activo
+                    : new Color(0.66f, 0.70f, 0.74f, forceFieldAlpha * pulse * 0.88f); // Escudo gris de ralentización sin escudo
                 forceFieldObj.transform.localRotation = Quaternion.Euler(0f, 0f, Time.time * 55f);
             }
             else if (forceFieldObj.activeSelf)
@@ -678,6 +680,10 @@ public class PlayerController : MonoBehaviour
 
         bool wasShieldActive = HasShield;
         currentShieldCapacity = Mathf.Max(0f, currentShieldCapacity - amount);
+
+        // Otorga 2 segundos de invulnerabilidad con parpadeo al ser golpeado teniendo escudo
+        invulnerabilityTimer = invulnerabilityDuration;
+        ApplyInvulnerableBlinkColor(true);
 
         if (wasShieldActive && !HasShield)
         {
@@ -1202,6 +1208,7 @@ public class PlayerController : MonoBehaviour
             chargeHoldTimer = 0f;
             hasFiredChargedShot = false;
             UpdateChargeVisuals(false, 0f, false);
+            GameManager.Instance?.hudManager?.ShowWeaponSwitchPopup(playerIndex == 2, currentFireMode == FireMode.HeavyCharged);
         }
 
         // 3. Lógica según el modo activo

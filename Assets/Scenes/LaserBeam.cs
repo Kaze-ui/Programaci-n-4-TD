@@ -3,6 +3,8 @@ using UnityEngine;
 public class LaserBeam : MonoBehaviour
 {
     public int damage = 2;
+    public float shieldDamage = 20f;
+    public bool drainsAllShield = false; // Si es true (Hiper Rayo del Jefe), destruye todo el escudo restante de un golpe
     public float activeDuration = 0.4f;
     public bool autoDestroy = true;
     public float damageTickInterval = 0.2f;
@@ -42,7 +44,7 @@ public class LaserBeam : MonoBehaviour
             for (int i = 0; i < activePlayers.Count; i++)
             {
                 PlayerController p = activePlayers[i];
-                if (p != null && p.gameObject.activeInHierarchy && p.GetCurrentHealth() > 0 && p.HasShield)
+                if (p != null && p.gameObject.activeInHierarchy && p.GetCurrentHealth() > 0)
                 {
                     Vector3 hitboxPos = p.GetHitboxCenter();
                     Vector3 closestPt = col != null ? (Vector3)col.ClosestPoint(hitboxPos) : transform.position;
@@ -70,17 +72,20 @@ public class LaserBeam : MonoBehaviour
     {
         if (Time.timeScale == 0f) return;
         if (!other.CompareTag("Player")) return;
-        if (Time.time < nextDamageTime) return;
 
         PlayerController player = other.GetComponent<PlayerController>();
         if (player != null)
         {
-            Vector3 impactPos = other.ClosestPoint(transform.position);
-            bool isDeflected = player.IsInvulnerable || player.HasShield;
-            EnemyExplosion.SpawnPlayerImpact(impactPos, isDeflected, 1.15f);
+            if (player.IsInvulnerable) return;
+            if (!drainsAllShield && Time.time < nextDamageTime) return;
 
-            // Los láseres sacan 20 de capacidad de escudo
-            bool absorbedByShield = player.TakeShieldDamage(20f);
+            Vector3 impactPos = other.ClosestPoint(transform.position);
+            bool isDeflected = player.HasShield;
+            EnemyExplosion.SpawnPlayerImpact(impactPos, isDeflected, drainsAllShield ? 1.5f : 1.15f);
+
+            // Si es el Hiper Rayo y el jugador tiene escudo, le saca TODO el escudo restante
+            float shieldHit = drainsAllShield ? (player.maxShieldCapacity + 1f) : shieldDamage;
+            bool absorbedByShield = player.TakeShieldDamage(shieldHit);
             if (!absorbedByShield)
             {
                 player.TakeDamage(damage);

@@ -13,14 +13,73 @@ public class HUDManager : MonoBehaviour
     [SerializeField] private TextMeshProUGUI timerText;
 
     private GameObject bannerObj;
+    private RectTransform bannerPanelRt;
     private CanvasGroup bannerCanvasGroup;
+    private Image bannerTopAccent;
+    private Image bannerBottomAccent;
+    private Image bannerLeftBracket;
+    private Image bannerRightBracket;
+    private Image bannerDividerBar;
+    private TextMeshProUGUI bannerEyebrowText;
+    private TextMeshProUGUI bannerTitleShadowText;
     private TextMeshProUGUI bannerTitleText;
     private TextMeshProUGUI bannerSubText;
     private Coroutine bannerCoroutine;
     private TextMeshProUGUI p2PromptText;
 
+    // --- TARJETAS MODERNAS DEL HUD ---
+    private GameObject healthCardObj;
+    private Image healthAccentBar;
+    private Image healthMiniFillBar;
+    private GameObject waveCardObj;
+    private Image waveAccentBar;
+    private GameObject scoreCardObj;
+    private GameObject timerCardObj;
+    private Image timerAccentBar;
+    private GameObject p2CardObj;
+    private Image p2AccentBar;
+    private Image p2MiniFillBar;
+    private GameObject p2MiniBarBgObj;
+    private static Sprite cachedHudWhiteSprite;
+
+    // --- ALERTA EMERGENTE FASE 2 ("NUEVOS ENEMIGOS DETECTADOS") ---
+    private GameObject phase2AlertObj;
+    private RectTransform phase2AlertBandRt;
+    private CanvasGroup phase2AlertCanvasGroup;
+    private Image phase2AlertBgImage;
+    private Image phase2AlertTopLine;
+    private Image phase2AlertBottomLine;
+    private TextMeshProUGUI phase2AlertEyebrowText;
+    private TextMeshProUGUI phase2AlertShadowText;
+    private TextMeshProUGUI phase2AlertText;
+    private TextMeshProUGUI phase2AlertSubText;
+    private Coroutine phase2AlertCoroutine;
+
+    // --- CARTELITO EMERGENTE DE CAMBIO DE ARMA (1P abajo-izq / 2P abajo-der) ---
+    private sealed class WeaponToastUI
+    {
+        public GameObject rootObj;
+        public RectTransform rt;
+        public CanvasGroup canvasGroup;
+        public Image accentBar;
+        public Image iconFrameBg;
+        public Image iconImage;
+        public TextMeshProUGUI eyebrowText;
+        public TextMeshProUGUI weaponNameText;
+        public Coroutine routine;
+        public float hiddenY;
+        public float shownY;
+    }
+
+    private WeaponToastUI p1WeaponToast;
+    private WeaponToastUI p2WeaponToast;
+    private static Sprite cachedBlastersIconSprite;
+    private static Sprite cachedPlasmaIconSprite;
+
     // --- MÍTICA BARRA DE VIDA DEL JEFE ---
     private bool isBossBarActive = false;
+    private bool isBossPhase2 = false;
+    private bool isBossInvulnerable = false;
     private string bossName = "Leviatán nodriza";
     private float bossMaxHealth = 500f;
     private float bossCurrentHealth = 500f;
@@ -43,30 +102,220 @@ public class HUDManager : MonoBehaviour
         EnsureBannerUI();
     }
 
-    private void SetupHudLayout()
+    private static Sprite GetHudWhiteSprite()
     {
-        // 1. Créditos a la derecha (esquina superior derecha)
-        if (scoreText != null)
+        if (cachedHudWhiteSprite != null) return cachedHudWhiteSprite;
+        Texture2D tex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+        for (int y = 0; y < 2; y++)
+            for (int x = 0; x < 2; x++)
+                tex.SetPixel(x, y, Color.white);
+        tex.Apply();
+        cachedHudWhiteSprite = Sprite.Create(tex, new Rect(0, 0, 2, 2), new Vector2(0.5f, 0.5f));
+        return cachedHudWhiteSprite;
+    }
+
+    private GameObject BuildModernHudCard(
+        string cardName,
+        Transform parent,
+        Vector2 anchor,
+        Vector2 pivot,
+        Vector2 anchoredPos,
+        Vector2 size,
+        Color accentColor,
+        bool accentOnLeft,
+        TextMeshProUGUI targetText,
+        TextAlignmentOptions alignment,
+        float fontSize,
+        out Image accentBarImg,
+        out Image miniFillBarImg,
+        out GameObject miniBarBgObj,
+        bool includeMiniHealthBar = false)
+    {
+        Sprite whiteSp = GetHudWhiteSprite();
+
+        GameObject card = new GameObject(cardName, typeof(RectTransform));
+        card.transform.SetParent(parent, false);
+        RectTransform cardRt = card.GetComponent<RectTransform>();
+        cardRt.anchorMin = anchor;
+        cardRt.anchorMax = anchor;
+        cardRt.pivot = pivot;
+        cardRt.anchoredPosition = anchoredPos;
+        cardRt.sizeDelta = size;
+
+        // Fondo oscuro translúcido estilo vidrio táctico
+        GameObject bgObj = new GameObject("CardBg", typeof(RectTransform));
+        bgObj.transform.SetParent(card.transform, false);
+        RectTransform bgRt = bgObj.GetComponent<RectTransform>();
+        bgRt.anchorMin = Vector2.zero;
+        bgRt.anchorMax = Vector2.one;
+        bgRt.offsetMin = Vector2.zero;
+        bgRt.offsetMax = Vector2.zero;
+        Image bgImg = bgObj.AddComponent<Image>();
+        bgImg.sprite = whiteSp;
+        bgImg.color = new Color(0.03f, 0.06f, 0.13f, 0.78f);
+        bgImg.raycastTarget = false;
+
+        // Línea sutil superior (brillo glass)
+        GameObject topLine = new GameObject("TopEdge", typeof(RectTransform));
+        topLine.transform.SetParent(card.transform, false);
+        RectTransform topRt = topLine.GetComponent<RectTransform>();
+        topRt.anchorMin = new Vector2(0f, 1f);
+        topRt.anchorMax = new Vector2(1f, 1f);
+        topRt.pivot = new Vector2(0.5f, 1f);
+        topRt.anchoredPosition = Vector2.zero;
+        topRt.sizeDelta = new Vector2(0f, 1.5f);
+        Image topImg = topLine.AddComponent<Image>();
+        topImg.sprite = whiteSp;
+        topImg.color = new Color(0.60f, 0.82f, 1f, 0.22f);
+        topImg.raycastTarget = false;
+
+        // Línea sutil inferior
+        GameObject botLine = new GameObject("BottomEdge", typeof(RectTransform));
+        botLine.transform.SetParent(card.transform, false);
+        RectTransform botRt = botLine.GetComponent<RectTransform>();
+        botRt.anchorMin = new Vector2(0f, 0f);
+        botRt.anchorMax = new Vector2(1f, 0f);
+        botRt.pivot = new Vector2(0.5f, 0f);
+        botRt.anchoredPosition = Vector2.zero;
+        botRt.sizeDelta = new Vector2(0f, 1.5f);
+        Image botImg = botLine.AddComponent<Image>();
+        botImg.sprite = whiteSp;
+        botImg.color = new Color(0.25f, 0.45f, 0.75f, 0.28f);
+        botImg.raycastTarget = false;
+
+        // Franja de acento neón lateral
+        GameObject accentObj = new GameObject("AccentBar", typeof(RectTransform));
+        accentObj.transform.SetParent(card.transform, false);
+        RectTransform accRt = accentObj.GetComponent<RectTransform>();
+        if (accentOnLeft)
         {
-            RectTransform rtScore = scoreText.rectTransform;
-            rtScore.anchorMin = new Vector2(1f, 1f);
-            rtScore.anchorMax = new Vector2(1f, 1f);
-            rtScore.pivot = new Vector2(1f, 1f);
-            rtScore.anchoredPosition = new Vector2(-25f, -15f);
-            rtScore.sizeDelta = new Vector2(240f, 50f);
-            scoreText.alignment = TextAlignmentOptions.Right;
+            accRt.anchorMin = new Vector2(0f, 0f);
+            accRt.anchorMax = new Vector2(0f, 1f);
+            accRt.pivot = new Vector2(0f, 0.5f);
+            accRt.anchoredPosition = Vector2.zero;
+            accRt.sizeDelta = new Vector2(4f, 0f);
+        }
+        else
+        {
+            accRt.anchorMin = new Vector2(1f, 0f);
+            accRt.anchorMax = new Vector2(1f, 1f);
+            accRt.pivot = new Vector2(1f, 0.5f);
+            accRt.anchoredPosition = Vector2.zero;
+            accRt.sizeDelta = new Vector2(4f, 0f);
+        }
+        accentBarImg = accentObj.AddComponent<Image>();
+        accentBarImg.sprite = whiteSp;
+        accentBarImg.color = accentColor;
+        accentBarImg.raycastTarget = false;
+
+        miniFillBarImg = null;
+        miniBarBgObj = null;
+        if (includeMiniHealthBar)
+        {
+            miniBarBgObj = new GameObject("MiniHpBarBg", typeof(RectTransform));
+            miniBarBgObj.transform.SetParent(card.transform, false);
+            RectTransform mBgRt = miniBarBgObj.GetComponent<RectTransform>();
+            mBgRt.anchorMin = new Vector2(0f, 0f);
+            mBgRt.anchorMax = new Vector2(1f, 0f);
+            mBgRt.pivot = new Vector2(0.5f, 0f);
+            mBgRt.anchoredPosition = new Vector2(0f, 3f);
+            mBgRt.sizeDelta = new Vector2(-18f, 4f);
+            Image mBgImg = miniBarBgObj.AddComponent<Image>();
+            mBgImg.sprite = whiteSp;
+            mBgImg.color = new Color(0.15f, 0.20f, 0.30f, 0.90f);
+            mBgImg.raycastTarget = false;
+
+            GameObject fillObj = new GameObject("MiniHpBarFill", typeof(RectTransform));
+            fillObj.transform.SetParent(miniBarBgObj.transform, false);
+            RectTransform fillRt = fillObj.GetComponent<RectTransform>();
+            fillRt.anchorMin = Vector2.zero;
+            fillRt.anchorMax = Vector2.one;
+            fillRt.offsetMin = Vector2.zero;
+            fillRt.offsetMax = Vector2.zero;
+            miniFillBarImg = fillObj.AddComponent<Image>();
+            miniFillBarImg.sprite = whiteSp;
+            miniFillBarImg.type = Image.Type.Filled;
+            miniFillBarImg.fillMethod = Image.FillMethod.Horizontal;
+            miniFillBarImg.fillOrigin = accentOnLeft ? (int)Image.OriginHorizontal.Left : (int)Image.OriginHorizontal.Right;
+            miniFillBarImg.fillAmount = 1f;
+            miniFillBarImg.color = accentColor;
+            miniFillBarImg.raycastTarget = false;
         }
 
-        // 2. Cronómetro de Defensa a la izquierda de Créditos (sin solaparse)
+        if (targetText != null)
+        {
+            targetText.transform.SetParent(card.transform, false);
+            RectTransform trt = targetText.rectTransform;
+            trt.anchorMin = Vector2.zero;
+            trt.anchorMax = Vector2.one;
+            trt.pivot = new Vector2(0.5f, 0.5f);
+            trt.offsetMin = new Vector2(accentOnLeft ? 14f : 10f, includeMiniHealthBar ? 7f : 2f);
+            trt.offsetMax = new Vector2(accentOnLeft ? -10f : -14f, -2f);
+
+            targetText.alignment = alignment;
+            targetText.fontSize = fontSize;
+            targetText.fontStyle = FontStyles.Bold;
+            targetText.characterSpacing = 1.4f;
+            targetText.enableAutoSizing = true;
+            targetText.fontSizeMin = 14f;
+            targetText.fontSizeMax = fontSize;
+            targetText.textWrappingMode = TextWrappingModes.NoWrap;
+            targetText.raycastTarget = false;
+        }
+
+        return card;
+    }
+
+    private void SetupHudLayout()
+    {
+        Transform hudParent = transform;
+
+        // 1. INTEGRIDAD / VIDA (Superior izquierda, fila 1 - deja el centro libre para la barra del jefe)
+        if (healthText != null)
+        {
+            healthCardObj = BuildModernHudCard(
+                "HudCard_Health", hudParent,
+                new Vector2(0f, 1f), new Vector2(0f, 1f),
+                new Vector2(18f, -14f), new Vector2(246f, 44f),
+                new Color(0.06f, 0.86f, 0.78f, 1f), true,
+                healthText, TextAlignmentOptions.MidlineLeft, 22f,
+                out healthAccentBar, out healthMiniFillBar, out _, true);
+        }
+
+        // 2. OLEADA / AMENAZA (Superior izquierda, fila 2)
+        if (waveText != null)
+        {
+            waveCardObj = BuildModernHudCard(
+                "HudCard_Wave", hudParent,
+                new Vector2(0f, 1f), new Vector2(0f, 1f),
+                new Vector2(18f, -66f), new Vector2(246f, 38f),
+                new Color(0.45f, 0.54f, 0.98f, 1f), true,
+                waveText, TextAlignmentOptions.MidlineLeft, 20f,
+                out waveAccentBar, out _, out _, false);
+        }
+
+        // 3. CRÉDITOS (Superior derecha, fila 1)
+        if (scoreText != null)
+        {
+            scoreCardObj = BuildModernHudCard(
+                "HudCard_Credits", hudParent,
+                new Vector2(1f, 1f), new Vector2(1f, 1f),
+                new Vector2(-18f, -14f), new Vector2(246f, 44f),
+                new Color(0.98f, 0.76f, 0.16f, 1f), false,
+                scoreText, TextAlignmentOptions.MidlineRight, 22f,
+                out _, out _, out _, false);
+        }
+
+        // 4. TIEMPO DE OLEADA (Superior derecha, fila 2 - se oculta en Jefe y Mejoras)
         if (timerText != null)
         {
-            RectTransform rtTimer = timerText.rectTransform;
-            rtTimer.anchorMin = new Vector2(1f, 1f);
-            rtTimer.anchorMax = new Vector2(1f, 1f);
-            rtTimer.pivot = new Vector2(1f, 1f);
-            rtTimer.anchoredPosition = new Vector2(-280f, -15f);
-            rtTimer.sizeDelta = new Vector2(250f, 50f);
-            timerText.alignment = TextAlignmentOptions.Right;
+            timerCardObj = BuildModernHudCard(
+                "HudCard_Timer", hudParent,
+                new Vector2(1f, 1f), new Vector2(1f, 1f),
+                new Vector2(-18f, -66f), new Vector2(246f, 38f),
+                new Color(0.98f, 0.56f, 0.22f, 1f), false,
+                timerText, TextAlignmentOptions.MidlineRight, 20f,
+                out timerAccentBar, out _, out _, false);
         }
 
         EnsureP2PromptUI();
@@ -77,27 +326,24 @@ public class HUDManager : MonoBehaviour
         if (p2PromptText != null) return;
 
         Canvas canvas = GetComponentInParent<Canvas>();
-        if (canvas == null) canvas = FindObjectOfType<Canvas>();
+        if (canvas == null) canvas = FindAnyObjectByType<Canvas>();
         if (canvas == null) return;
 
-        GameObject p2Obj = new GameObject("P2PromptText", typeof(RectTransform), typeof(TextMeshProUGUI));
-        p2Obj.transform.SetParent(transform.parent != null ? transform.parent : canvas.transform, false);
-
-        RectTransform rt = p2Obj.GetComponent<RectTransform>();
-        rt.anchorMin = new Vector2(1f, 0f);
-        rt.anchorMax = new Vector2(1f, 0f);
-        rt.pivot = new Vector2(1f, 0f);
-        rt.anchoredPosition = new Vector2(-25f, 20f);
-        rt.sizeDelta = new Vector2(560f, 50f);
-
-        p2PromptText = p2Obj.GetComponent<TextMeshProUGUI>();
+        Transform parent = transform.parent != null ? transform.parent : canvas.transform;
+        GameObject p2TextObj = new GameObject("P2PromptText", typeof(RectTransform));
+        p2PromptText = p2TextObj.AddComponent<TextMeshProUGUI>();
         if (healthText != null && healthText.font != null) p2PromptText.font = healthText.font;
-        p2PromptText.alignment = TextAlignmentOptions.Right;
-        p2PromptText.fontSize = 22;
-        p2PromptText.fontStyle = FontStyles.Bold;
-        p2PromptText.enableWordWrapping = false;
-        p2PromptText.raycastTarget = false;
+
+        p2CardObj = BuildModernHudCard(
+            "HudCard_P2", parent,
+            new Vector2(1f, 0f), new Vector2(1f, 0f),
+            new Vector2(-18f, 18f), new Vector2(290f, 44f),
+            new Color(0.98f, 0.36f, 0.48f, 1f), false,
+            p2PromptText, TextAlignmentOptions.MidlineRight, 20f,
+            out p2AccentBar, out p2MiniFillBar, out p2MiniBarBgObj, true);
+
         p2PromptText.text = "";
+        if (p2CardObj != null) p2CardObj.SetActive(false);
     }
 
     public void UpdateP2Status(bool isConnected, bool isJoined, long currentHealth, long maxHealth)
@@ -107,30 +353,54 @@ public class HUDManager : MonoBehaviour
 
         if (isJoined)
         {
+            if (p2CardObj != null) p2CardObj.SetActive(true);
+            RectTransform cardRt = p2CardObj != null ? p2CardObj.GetComponent<RectTransform>() : null;
+            if (cardRt != null) cardRt.sizeDelta = new Vector2(268f, 44f);
+            if (p2MiniBarBgObj != null) p2MiniBarBgObj.SetActive(true);
+
+            float pct = maxHealth > 0 ? Mathf.Clamp01((float)currentHealth / maxHealth) : 0f;
+            if (p2MiniFillBar != null)
+            {
+                p2MiniFillBar.fillAmount = pct;
+                p2MiniFillBar.color = pct <= 0.25f ? new Color(1f, 0.22f, 0.26f, 1f) : new Color(0.98f, 0.38f, 0.50f, 1f);
+            }
+            if (p2AccentBar != null)
+            {
+                p2AccentBar.color = currentHealth <= 0 ? new Color(0.95f, 0.20f, 0.22f, 1f) : new Color(0.98f, 0.38f, 0.50f, 1f);
+            }
+
             if (currentHealth <= 0)
             {
-                p2PromptText.text = "<color=#FF2222><b>2P VIDA:</b> DERRIBADO</color>";
+                p2PromptText.text = "<size=62%><color=#F87171><b>2P ESTADO</b></color></size>  <color=#FCA5A5><b>CAÍDO</b></color>";
             }
             else
             {
-                string labelColor = currentHealth <= 1 ? "#FF2222" : "#FF5555";
-                p2PromptText.text = $"<color={labelColor}><b>2P VIDA:</b></color> <color=#FFFFFF>{currentHealth}</color><color=#FFAAAA>/{maxHealth}</color>";
+                string labelColor = currentHealth <= 2 ? "#FF3B30" : "#FB7185";
+                p2PromptText.text = $"<size=62%><color={labelColor}><b>2P INTEGRIDAD</b></color></size>  <color=#F8FAFC><b>{currentHealth}</b></color><color=#64748B>/{maxHealth}</color>";
             }
         }
         else if (isConnected)
         {
+            if (p2CardObj != null) p2CardObj.SetActive(true);
+            RectTransform cardRt = p2CardObj != null ? p2CardObj.GetComponent<RectTransform>() : null;
+            if (p2MiniBarBgObj != null) p2MiniBarBgObj.SetActive(false);
+            if (p2AccentBar != null) p2AccentBar.color = new Color(0.98f, 0.82f, 0.20f, 1f);
+
             if (GameManager.GetConnectedGamepadCount() >= 2)
             {
-                p2PromptText.text = "<color=#7DD3FC><b>1P: Mando 1</b></color> <color=#94A3B8>|</color> <color=#FFDF59><b>2P (Mando 2): Presione Start</b></color>";
+                if (cardRt != null) cardRt.sizeDelta = new Vector2(430f, 40f);
+                p2PromptText.text = "<size=66%><color=#38BDF8><b>1P</b></color></size> <color=#CBD5E1>Mando 1</color>  <color=#475569>|</color>  <size=66%><color=#FACC15><b>2P</b></color></size> <color=#F8FAFC>Pulsa <b>START</b></color>";
             }
             else
             {
-                p2PromptText.text = "<color=#FFDF59><b>2P: Presione start para jugar</b></color>";
+                if (cardRt != null) cardRt.sizeDelta = new Vector2(315f, 40f);
+                p2PromptText.text = "<size=66%><color=#FACC15><b>CO-OP 2P</b></color></size>  <color=#E2E8F0>Pulsa <b>START</b></color>";
             }
         }
         else
         {
             p2PromptText.text = "";
+            if (p2CardObj != null) p2CardObj.SetActive(false);
         }
     }
 
@@ -147,6 +417,8 @@ public class HUDManager : MonoBehaviour
              GameManager.Instance.IsAwaitingScreamRevive))
         {
             HideWaveBannerImmediately();
+            HidePhase2AlertImmediately();
+            HideWeaponToastsImmediately();
         }
 
         if (isBossBarActive)
@@ -180,9 +452,24 @@ public class HUDManager : MonoBehaviour
     {
         if (healthText != null)
         {
-            string prefix = hasPlayer2 ? "1P VIDA:" : "VIDA:";
-            string labelColor = current <= 1 ? "#FF4444" : "#00F5D4";
-            healthText.text = $"<color={labelColor}><b>{prefix}</b></color> <color=#FFFFFF>{current}</color><color=#7FE7D9>/{max}</color>";
+            float pct = max > 0 ? Mathf.Clamp01((float)current / max) : 0f;
+            string prefix = hasPlayer2 ? "1P INTEGRIDAD" : "INTEGRIDAD";
+            string labelColor = pct <= 0.25f ? "#FF4D6D" : (pct <= 0.50f ? "#FBBF24" : "#2DD4BF");
+            Color barCol = pct <= 0.25f
+                ? new Color(1f, 0.28f, 0.40f, 1f)
+                : (pct <= 0.50f ? new Color(0.98f, 0.74f, 0.16f, 1f) : new Color(0.12f, 0.88f, 0.80f, 1f));
+
+            healthText.text = $"<size=62%><color={labelColor}><b>{prefix}</b></color></size>  <color=#F8FAFC><b>{current}</b></color><color=#64748B>/{max}</color>";
+
+            if (healthMiniFillBar != null)
+            {
+                healthMiniFillBar.fillAmount = pct;
+                healthMiniFillBar.color = barCol;
+            }
+            if (healthAccentBar != null)
+            {
+                healthAccentBar.color = barCol;
+            }
         }
     }
 
@@ -200,19 +487,34 @@ public class HUDManager : MonoBehaviour
     public void UpdateScore(int score)
     {
         if (scoreText != null)
-            scoreText.text = $"<color=#FFD700><b>CRÉDITOS:</b></color> <color=#FFFFFF>{score}</color>";
+            scoreText.text = $"<size=62%><color=#FBBF24><b>CRÉDITOS</b></color></size>  <color=#FFFBEB><b>{score}</b></color> <size=70%><color=#F59E0B><b>CR</b></color></size>";
     }
 
     public void UpdateWave(int current, int max)
     {
         if (waveText != null)
-            waveText.text = $"<color=#38BDF8><b>SECTOR:</b></color> <color=#FFFFFF>{current}</color><color=#93C5FD>/{max}</color>";
+        {
+            waveText.text = $"<size=62%><color=#818CF8><b>OLEADA</b></color></size>  <color=#F8FAFC><b>{current}</b></color><color=#64748B>/{max}</color>";
+            if (waveAccentBar != null) waveAccentBar.color = new Color(0.45f, 0.54f, 0.98f, 1f);
+        }
     }
 
     public void SetWaveText(string text)
     {
         if (waveText != null)
-            waveText.text = $"<color=#38BDF8><b>{text}</b></color>";
+        {
+            bool isBoss = !string.IsNullOrEmpty(text) && (text.Contains("LEVIAT") || text.Contains("JEFE") || text.Contains("NODRIZA"));
+            if (isBoss)
+            {
+                waveText.text = "<size=60%><color=#FB7185><b>AMENAZA</b></color></size>  <color=#FFF1F2><b>JEFE FINAL</b></color>";
+                if (waveAccentBar != null) waveAccentBar.color = new Color(0.98f, 0.25f, 0.36f, 1f);
+            }
+            else
+            {
+                waveText.text = $"<size=68%><color=#38BDF8><b>{text}</b></color></size>";
+                if (waveAccentBar != null) waveAccentBar.color = new Color(0.22f, 0.74f, 0.97f, 1f);
+            }
+        }
     }
 
     private bool isTimerHiddenForUpgrade = false;
@@ -220,34 +522,43 @@ public class HUDManager : MonoBehaviour
     public void HideTimerForUpgrade(bool hide)
     {
         isTimerHiddenForUpgrade = hide;
-        if (timerText != null)
-        {
-            timerText.gameObject.SetActive(!hide && (!isBossBarActive || isBossDefeated));
-        }
+        bool visible = !hide && (!isBossBarActive || isBossDefeated);
+        if (timerCardObj != null) timerCardObj.SetActive(visible);
+        if (timerText != null) timerText.gameObject.SetActive(visible);
     }
 
     public void UpdateTimer(float secondsRemaining)
     {
         if (isTimerHiddenForUpgrade)
         {
+            if (timerCardObj != null) timerCardObj.SetActive(false);
             if (timerText != null) timerText.gameObject.SetActive(false);
             return;
         }
 
         if (timerText != null)
         {
-            // Si la barra del jefe está activa, despejar el texto del cronómetro para evitar solapamientos
+            // Si la barra del jefe está activa, ocultar tarjeta y texto del cronómetro
             if (isBossBarActive && !isBossDefeated)
             {
                 timerText.text = "";
+                if (timerCardObj != null) timerCardObj.SetActive(false);
                 return;
             }
+
+            if (timerCardObj != null && !timerCardObj.activeSelf) timerCardObj.SetActive(true);
+            if (!timerText.gameObject.activeSelf) timerText.gameObject.SetActive(true);
 
             int totalSeconds = Mathf.CeilToInt(Mathf.Max(0f, secondsRemaining));
             int minutes = totalSeconds / 60;
             int seconds = totalSeconds % 60;
-            string timerColor = secondsRemaining <= 10f ? "#FF3B30" : "#FF9F43";
-            timerText.text = $"<color={timerColor}><b>DEFENSA:</b></color> <color=#FFFFFF>{minutes:00}:{seconds:00}</color>";
+            bool urgent = secondsRemaining <= 10f;
+            string timerColor = urgent ? "#FF4D6D" : "#FB923C";
+            timerText.text = $"<size=62%><color={timerColor}><b>TIEMPO</b></color></size>  <color=#F8FAFC><b>{minutes:00}:{seconds:00}</b></color>";
+            if (timerAccentBar != null)
+            {
+                timerAccentBar.color = urgent ? new Color(1f, 0.26f, 0.36f, 1f) : new Color(0.98f, 0.56f, 0.22f, 1f);
+            }
         }
     }
 
@@ -256,8 +567,11 @@ public class HUDManager : MonoBehaviour
         if (bannerObj != null) return;
 
         Canvas canvas = GetComponentInParent<Canvas>();
-        if (canvas == null) canvas = FindObjectOfType<Canvas>();
+        if (canvas == null) canvas = FindAnyObjectByType<Canvas>();
         if (canvas == null) return;
+
+        Sprite whiteSp = GetHudWhiteSprite();
+        TMP_FontAsset hudFont = (healthText != null && healthText.font != null) ? healthText.font : null;
 
         bannerObj = new GameObject("WaveBannerContainer", typeof(RectTransform), typeof(CanvasGroup));
         bannerObj.transform.SetParent(canvas.transform, false);
@@ -275,42 +589,181 @@ public class HUDManager : MonoBehaviour
         bannerCanvasGroup.blocksRaycasts = false;
         bannerCanvasGroup.interactable = false;
 
-        // Título del banner
-        GameObject titleObj = new GameObject("BannerTitle", typeof(RectTransform), typeof(TextMeshProUGUI));
-        titleObj.transform.SetParent(bannerObj.transform, false);
+        // Tarjeta táctica central estilizada
+        GameObject panelObj = new GameObject("BannerPanel", typeof(RectTransform));
+        panelObj.transform.SetParent(bannerObj.transform, false);
+        bannerPanelRt = panelObj.GetComponent<RectTransform>();
+        bannerPanelRt.anchorMin = new Vector2(0.5f, 0.5f);
+        bannerPanelRt.anchorMax = new Vector2(0.5f, 0.5f);
+        bannerPanelRt.pivot = new Vector2(0.5f, 0.5f);
+        bannerPanelRt.anchoredPosition = new Vector2(0f, 65f);
+        bannerPanelRt.sizeDelta = new Vector2(760f, 174f);
+
+        // Fondo oscuro translúcido tipo vidrio táctico
+        GameObject bgObj = new GameObject("BannerBg", typeof(RectTransform));
+        bgObj.transform.SetParent(panelObj.transform, false);
+        RectTransform bgRt = bgObj.GetComponent<RectTransform>();
+        bgRt.anchorMin = Vector2.zero;
+        bgRt.anchorMax = Vector2.one;
+        bgRt.offsetMin = Vector2.zero;
+        bgRt.offsetMax = Vector2.zero;
+        Image bgImg = bgObj.AddComponent<Image>();
+        bgImg.sprite = whiteSp;
+        bgImg.color = new Color(0.03f, 0.06f, 0.13f, 0.84f);
+        bgImg.raycastTarget = false;
+
+        // Franja superior neón
+        GameObject topLineObj = new GameObject("BannerTopAccent", typeof(RectTransform));
+        topLineObj.transform.SetParent(panelObj.transform, false);
+        RectTransform topRt = topLineObj.GetComponent<RectTransform>();
+        topRt.anchorMin = new Vector2(0f, 1f);
+        topRt.anchorMax = new Vector2(1f, 1f);
+        topRt.pivot = new Vector2(0.5f, 1f);
+        topRt.anchoredPosition = Vector2.zero;
+        topRt.sizeDelta = new Vector2(0f, 3f);
+        bannerTopAccent = topLineObj.AddComponent<Image>();
+        bannerTopAccent.sprite = whiteSp;
+        bannerTopAccent.color = new Color(0.22f, 0.78f, 1f, 0.95f);
+        bannerTopAccent.raycastTarget = false;
+
+        // Franja inferior neón
+        GameObject botLineObj = new GameObject("BannerBottomAccent", typeof(RectTransform));
+        botLineObj.transform.SetParent(panelObj.transform, false);
+        RectTransform botRt = botLineObj.GetComponent<RectTransform>();
+        botRt.anchorMin = new Vector2(0f, 0f);
+        botRt.anchorMax = new Vector2(1f, 0f);
+        botRt.pivot = new Vector2(0.5f, 0f);
+        botRt.anchoredPosition = Vector2.zero;
+        botRt.sizeDelta = new Vector2(0f, 3f);
+        bannerBottomAccent = botLineObj.AddComponent<Image>();
+        bannerBottomAccent.sprite = whiteSp;
+        bannerBottomAccent.color = new Color(0.22f, 0.78f, 1f, 0.95f);
+        bannerBottomAccent.raycastTarget = false;
+
+        // Corchetes laterales luminosos (izquierda y derecha)
+        GameObject leftBrObj = new GameObject("BannerLeftBracket", typeof(RectTransform));
+        leftBrObj.transform.SetParent(panelObj.transform, false);
+        RectTransform lbRt = leftBrObj.GetComponent<RectTransform>();
+        lbRt.anchorMin = new Vector2(0f, 0f);
+        lbRt.anchorMax = new Vector2(0f, 1f);
+        lbRt.pivot = new Vector2(0f, 0.5f);
+        lbRt.anchoredPosition = Vector2.zero;
+        lbRt.sizeDelta = new Vector2(6f, 0f);
+        bannerLeftBracket = leftBrObj.AddComponent<Image>();
+        bannerLeftBracket.sprite = whiteSp;
+        bannerLeftBracket.color = new Color(0.22f, 0.78f, 1f, 1f);
+        bannerLeftBracket.raycastTarget = false;
+
+        GameObject rightBrObj = new GameObject("BannerRightBracket", typeof(RectTransform));
+        rightBrObj.transform.SetParent(panelObj.transform, false);
+        RectTransform rbRt = rightBrObj.GetComponent<RectTransform>();
+        rbRt.anchorMin = new Vector2(1f, 0f);
+        rbRt.anchorMax = new Vector2(1f, 1f);
+        rbRt.pivot = new Vector2(1f, 0.5f);
+        rbRt.anchoredPosition = Vector2.zero;
+        rbRt.sizeDelta = new Vector2(6f, 0f);
+        bannerRightBracket = rightBrObj.AddComponent<Image>();
+        bannerRightBracket.sprite = whiteSp;
+        bannerRightBracket.color = new Color(0.22f, 0.78f, 1f, 1f);
+        bannerRightBracket.raycastTarget = false;
+
+        // Etiqueta superior táctica (eyebrow)
+        GameObject eyebrowObj = new GameObject("BannerEyebrow", typeof(RectTransform));
+        eyebrowObj.transform.SetParent(panelObj.transform, false);
+        RectTransform eyeRt = eyebrowObj.GetComponent<RectTransform>();
+        eyeRt.anchorMin = new Vector2(0f, 1f);
+        eyeRt.anchorMax = new Vector2(1f, 1f);
+        eyeRt.pivot = new Vector2(0.5f, 1f);
+        eyeRt.anchoredPosition = new Vector2(0f, -12f);
+        eyeRt.sizeDelta = new Vector2(-40f, 26f);
+        bannerEyebrowText = eyebrowObj.AddComponent<TextMeshProUGUI>();
+        if (hudFont != null) bannerEyebrowText.font = hudFont;
+        bannerEyebrowText.alignment = TextAlignmentOptions.Center;
+        bannerEyebrowText.fontSize = 16;
+        bannerEyebrowText.fontStyle = FontStyles.Bold;
+        bannerEyebrowText.characterSpacing = 5.5f;
+        bannerEyebrowText.color = new Color(0.50f, 0.88f, 1f, 0.92f);
+        bannerEyebrowText.textWrappingMode = TextWrappingModes.NoWrap;
+        bannerEyebrowText.raycastTarget = false;
+
+        // Sombra del título principal
+        GameObject shadowObj = new GameObject("BannerTitleShadow", typeof(RectTransform));
+        shadowObj.transform.SetParent(panelObj.transform, false);
+        RectTransform shRt = shadowObj.GetComponent<RectTransform>();
+        shRt.anchorMin = new Vector2(0f, 0.5f);
+        shRt.anchorMax = new Vector2(1f, 0.5f);
+        shRt.pivot = new Vector2(0.5f, 0.5f);
+        shRt.anchoredPosition = new Vector2(3f, 8f);
+        shRt.sizeDelta = new Vector2(-40f, 68f);
+        bannerTitleShadowText = shadowObj.AddComponent<TextMeshProUGUI>();
+        if (hudFont != null) bannerTitleShadowText.font = hudFont;
+        bannerTitleShadowText.alignment = TextAlignmentOptions.Center;
+        bannerTitleShadowText.fontSize = 52;
+        bannerTitleShadowText.fontStyle = FontStyles.Bold;
+        bannerTitleShadowText.characterSpacing = 4f;
+        bannerTitleShadowText.color = new Color(0f, 0f, 0f, 0.88f);
+        bannerTitleShadowText.enableAutoSizing = true;
+        bannerTitleShadowText.fontSizeMin = 28;
+        bannerTitleShadowText.fontSizeMax = 52;
+        bannerTitleShadowText.textWrappingMode = TextWrappingModes.NoWrap;
+        bannerTitleShadowText.raycastTarget = false;
+
+        // Título principal
+        GameObject titleObj = new GameObject("BannerTitle", typeof(RectTransform));
+        titleObj.transform.SetParent(panelObj.transform, false);
         RectTransform titleRt = titleObj.GetComponent<RectTransform>();
         titleRt.anchorMin = new Vector2(0f, 0.5f);
         titleRt.anchorMax = new Vector2(1f, 0.5f);
         titleRt.pivot = new Vector2(0.5f, 0.5f);
-        titleRt.anchoredPosition = new Vector2(0f, 90f);
-        titleRt.sizeDelta = new Vector2(0f, 110f);
-
-        bannerTitleText = titleObj.GetComponent<TextMeshProUGUI>();
-        if (healthText != null && healthText.font != null) bannerTitleText.font = healthText.font;
+        titleRt.anchoredPosition = new Vector2(0f, 11f);
+        titleRt.sizeDelta = new Vector2(-40f, 68f);
+        bannerTitleText = titleObj.AddComponent<TextMeshProUGUI>();
+        if (hudFont != null) bannerTitleText.font = hudFont;
         bannerTitleText.alignment = TextAlignmentOptions.Center;
-        bannerTitleText.fontSize = 54;
+        bannerTitleText.fontSize = 52;
         bannerTitleText.fontStyle = FontStyles.Bold;
+        bannerTitleText.characterSpacing = 4f;
         bannerTitleText.color = Color.white;
-        bannerTitleText.enableWordWrapping = false;
+        bannerTitleText.enableAutoSizing = true;
+        bannerTitleText.fontSizeMin = 28;
+        bannerTitleText.fontSizeMax = 52;
+        bannerTitleText.textWrappingMode = TextWrappingModes.NoWrap;
         bannerTitleText.raycastTarget = false;
 
-        // Subtítulo del banner
-        GameObject subObj = new GameObject("BannerSubtitle", typeof(RectTransform), typeof(TextMeshProUGUI));
-        subObj.transform.SetParent(bannerObj.transform, false);
-        RectTransform subRt = subObj.GetComponent<RectTransform>();
-        subRt.anchorMin = new Vector2(0f, 0.5f);
-        subRt.anchorMax = new Vector2(1f, 0.5f);
-        subRt.pivot = new Vector2(0.5f, 0.5f);
-        subRt.anchoredPosition = new Vector2(0f, 30f);
-        subRt.sizeDelta = new Vector2(0f, 60f);
+        // Barra divisoria fina entre título y subtítulo
+        GameObject divObj = new GameObject("BannerDivider", typeof(RectTransform));
+        divObj.transform.SetParent(panelObj.transform, false);
+        RectTransform divRt = divObj.GetComponent<RectTransform>();
+        divRt.anchorMin = new Vector2(0.5f, 0.5f);
+        divRt.anchorMax = new Vector2(0.5f, 0.5f);
+        divRt.pivot = new Vector2(0.5f, 0.5f);
+        divRt.anchoredPosition = new Vector2(0f, -26f);
+        divRt.sizeDelta = new Vector2(360f, 2f);
+        bannerDividerBar = divObj.AddComponent<Image>();
+        bannerDividerBar.sprite = whiteSp;
+        bannerDividerBar.color = new Color(0.35f, 0.85f, 1f, 0.55f);
+        bannerDividerBar.raycastTarget = false;
 
-        bannerSubText = subObj.GetComponent<TextMeshProUGUI>();
-        if (healthText != null && healthText.font != null) bannerSubText.font = healthText.font;
+        // Subtítulo detallado del banner
+        GameObject subObj = new GameObject("BannerSubtitle", typeof(RectTransform));
+        subObj.transform.SetParent(panelObj.transform, false);
+        RectTransform subRt = subObj.GetComponent<RectTransform>();
+        subRt.anchorMin = new Vector2(0f, 0f);
+        subRt.anchorMax = new Vector2(1f, 0f);
+        subRt.pivot = new Vector2(0.5f, 0f);
+        subRt.anchoredPosition = new Vector2(0f, 16f);
+        subRt.sizeDelta = new Vector2(-48f, 38f);
+        bannerSubText = subObj.AddComponent<TextMeshProUGUI>();
+        if (hudFont != null) bannerSubText.font = hudFont;
         bannerSubText.alignment = TextAlignmentOptions.Center;
-        bannerSubText.fontSize = 28;
+        bannerSubText.fontSize = 22;
         bannerSubText.fontStyle = FontStyles.Bold;
-        bannerSubText.color = new Color(1f, 0.88f, 0.35f, 1f);
-        bannerSubText.enableWordWrapping = false;
+        bannerSubText.characterSpacing = 2.2f;
+        bannerSubText.color = new Color(0.98f, 0.88f, 0.38f, 1f);
+        bannerSubText.enableAutoSizing = true;
+        bannerSubText.fontSizeMin = 15;
+        bannerSubText.fontSizeMax = 22;
+        bannerSubText.textWrappingMode = TextWrappingModes.NoWrap;
         bannerSubText.raycastTarget = false;
 
         bannerObj.SetActive(false);
@@ -321,18 +774,85 @@ public class HUDManager : MonoBehaviour
         EnsureBannerUI();
         if (bannerObj == null) return;
 
-        bool isBoss = title.Contains("JEFE") || title.Contains("NODRIZA") || title.Contains("ALERTA");
-        bannerTitleText.text = title;
-        bannerTitleText.color = isBoss ? new Color(1f, 0.25f, 0.25f, 1f) : Color.white;
+        string safeTitle = string.IsNullOrEmpty(title) ? "" : title;
+        bool isBoss = safeTitle.Contains("JEFE") || safeTitle.Contains("NODRIZA") || safeTitle.Contains("ALERTA");
+        bool isCleared = safeTitle.Contains("ASEGURADO") || safeTitle.Contains("CUMPLIDO") || safeTitle.Contains("REINICIADO");
+        bool isCoop = safeTitle.Contains("JUGADOR 2");
+        bool isSector = safeTitle.Contains("SECTOR") && !isCleared;
+
+        Color accentCol;
+        Color titleCol;
+        Color subCol;
+        string eyebrow;
+
+        if (isBoss)
+        {
+            accentCol = new Color(1f, 0.20f, 0.28f, 1f);
+            titleCol = new Color(1f, 0.30f, 0.34f, 1f);
+            subCol = new Color(1f, 0.86f, 0.32f, 1f);
+            eyebrow = "//  ALERTA CRÍTICA DE FLOTA  •  AMENAZA CLASE LEVIATÁN  //";
+        }
+        else if (isCleared)
+        {
+            accentCol = new Color(0.12f, 0.90f, 0.72f, 1f);
+            titleCol = new Color(0.75f, 1f, 0.92f, 1f);
+            subCol = new Color(0.56f, 0.94f, 0.84f, 1f);
+            eyebrow = safeTitle.Contains("REINICIADO")
+                ? "//  PROTOCOLO DE EMERGENCIA  •  REACTIVACIÓN COMPLETA  //"
+                : "//  OBJETIVO CUMPLIDO  •  ZONA DESPEJADA  //";
+        }
+        else if (isCoop)
+        {
+            accentCol = new Color(0.98f, 0.78f, 0.18f, 1f);
+            titleCol = new Color(1f, 0.94f, 0.68f, 1f);
+            subCol = new Color(0.65f, 0.90f, 1f, 1f);
+            eyebrow = "//  ENLACE TÁCTICO  •  REFUERZO ALIADO EN LÍNEA  //";
+        }
+        else if (isSector)
+        {
+            accentCol = new Color(0.24f, 0.78f, 1f, 1f);
+            titleCol = new Color(0.96f, 0.99f, 1f, 1f);
+            subCol = new Color(1f, 0.86f, 0.34f, 1f);
+            eyebrow = "//  DESPLIEGUE TÁCTICO  •  ZONA DE COMBATE ACTIVA  //";
+        }
+        else
+        {
+            accentCol = new Color(0.45f, 0.62f, 1f, 1f);
+            titleCol = Color.white;
+            subCol = new Color(0.98f, 0.88f, 0.38f, 1f);
+            eyebrow = "//  TRANSMISIÓN DE COMANDO  //";
+        }
+
+        if (bannerTopAccent != null) bannerTopAccent.color = accentCol;
+        if (bannerBottomAccent != null) bannerBottomAccent.color = accentCol;
+        if (bannerLeftBracket != null) bannerLeftBracket.color = accentCol;
+        if (bannerRightBracket != null) bannerRightBracket.color = accentCol;
+        if (bannerDividerBar != null) bannerDividerBar.color = new Color(accentCol.r, accentCol.g, accentCol.b, 0.55f);
+
+        if (bannerEyebrowText != null)
+        {
+            bannerEyebrowText.text = eyebrow;
+            bannerEyebrowText.color = Color.Lerp(accentCol, Color.white, 0.35f);
+        }
+
+        if (bannerTitleShadowText != null) bannerTitleShadowText.text = safeTitle;
+        if (bannerTitleText != null)
+        {
+            bannerTitleText.text = safeTitle;
+            bannerTitleText.color = titleCol;
+        }
 
         if (!string.IsNullOrEmpty(subtitle))
         {
-            bannerSubText.text = subtitle;
+            bannerSubText.text = subtitle.ToUpperInvariant();
+            bannerSubText.color = subCol;
             bannerSubText.gameObject.SetActive(true);
+            if (bannerDividerBar != null) bannerDividerBar.gameObject.SetActive(true);
         }
         else
         {
             bannerSubText.gameObject.SetActive(false);
+            if (bannerDividerBar != null) bannerDividerBar.gameObject.SetActive(false);
         }
 
         bannerObj.SetActive(true);
@@ -348,11 +868,28 @@ public class HUDManager : MonoBehaviour
     {
         if (bannerCanvasGroup == null) yield break;
 
-        bannerCanvasGroup.alpha = 1f;
-
-        // Se muestra completo durante 2.5s usando tiempo sin escalar para que no se quede congelado
-        float displayTime = 2.5f;
+        // Entrada dinámica rápida con pop de escala (0.18s)
+        const float introDur = 0.18f;
         float elapsed = 0f;
+        while (elapsed < introDur)
+        {
+            elapsed += Time.unscaledDeltaTime;
+            float t = Mathf.Clamp01(elapsed / introDur);
+            float easeOut = 1f - (1f - t) * (1f - t);
+            bannerCanvasGroup.alpha = easeOut;
+            if (bannerPanelRt != null)
+            {
+                float s = Mathf.Lerp(0.90f, 1.0f, easeOut);
+                bannerPanelRt.localScale = new Vector3(s, s, 1f);
+            }
+            yield return null;
+        }
+        bannerCanvasGroup.alpha = 1f;
+        if (bannerPanelRt != null) bannerPanelRt.localScale = Vector3.one;
+
+        // Permanencia visible completa (2.35s)
+        float displayTime = 2.35f;
+        elapsed = 0f;
         while (elapsed < displayTime)
         {
             elapsed += Time.unscaledDeltaTime;
@@ -360,16 +897,23 @@ public class HUDManager : MonoBehaviour
         }
 
         // Desvanecimiento suave
-        float fadeDuration = 1.0f;
+        float fadeDuration = 0.85f;
         elapsed = 0f;
         while (elapsed < fadeDuration)
         {
             elapsed += Time.unscaledDeltaTime;
-            bannerCanvasGroup.alpha = Mathf.Clamp01(1f - (elapsed / fadeDuration));
+            float t = Mathf.Clamp01(elapsed / fadeDuration);
+            bannerCanvasGroup.alpha = 1f - t;
+            if (bannerPanelRt != null)
+            {
+                float s = Mathf.Lerp(1.0f, 1.04f, t);
+                bannerPanelRt.localScale = new Vector3(s, s, 1f);
+            }
             yield return null;
         }
 
         bannerCanvasGroup.alpha = 0f;
+        if (bannerPanelRt != null) bannerPanelRt.localScale = Vector3.one;
         if (bannerObj != null) bannerObj.SetActive(false);
         bannerCoroutine = null;
     }
@@ -385,10 +929,638 @@ public class HUDManager : MonoBehaviour
         {
             bannerCanvasGroup.alpha = 0f;
         }
+        if (bannerPanelRt != null)
+        {
+            bannerPanelRt.localScale = Vector3.one;
+        }
         if (bannerObj != null)
         {
             bannerObj.SetActive(false);
         }
+    }
+
+    // --- PANTALLA EMERGENTE NEGRA TRANSPARENTE DE FASE 2 ---
+
+    private void EnsurePhase2AlertUI()
+    {
+        if (phase2AlertObj != null) return;
+
+        Canvas canvas = GetComponentInParent<Canvas>();
+        if (canvas == null) canvas = FindAnyObjectByType<Canvas>();
+        if (canvas == null) return;
+
+        Sprite whiteSp = GetHudWhiteSprite();
+        TMP_FontAsset hudFont = (healthText != null && healthText.font != null) ? healthText.font : null;
+
+        phase2AlertObj = new GameObject("Phase2EnemyAlertOverlay", typeof(RectTransform), typeof(CanvasGroup));
+        phase2AlertObj.transform.SetParent(canvas.transform, false);
+        // Encima del banner normal pero debajo de los paneles modales (UpgradePanel, GameOverPanel)
+        phase2AlertObj.transform.SetSiblingIndex(bannerObj != null ? bannerObj.transform.GetSiblingIndex() + 1 : 0);
+
+        RectTransform rootRt = phase2AlertObj.GetComponent<RectTransform>();
+        rootRt.anchorMin = Vector2.zero;
+        rootRt.anchorMax = Vector2.one;
+        rootRt.offsetMin = Vector2.zero;
+        rootRt.offsetMax = Vector2.zero;
+
+        phase2AlertCanvasGroup = phase2AlertObj.GetComponent<CanvasGroup>();
+        phase2AlertCanvasGroup.alpha = 0f;
+        phase2AlertCanvasGroup.blocksRaycasts = false;
+        phase2AlertCanvasGroup.interactable = false;
+
+        // Fondo negro transparente a pantalla completa (deja ver las naves y el láser rojo)
+        GameObject bgObj = new GameObject("TransparentBlackBg", typeof(RectTransform));
+        bgObj.transform.SetParent(phase2AlertObj.transform, false);
+        RectTransform bgRt = bgObj.GetComponent<RectTransform>();
+        bgRt.anchorMin = Vector2.zero;
+        bgRt.anchorMax = Vector2.one;
+        bgRt.offsetMin = Vector2.zero;
+        bgRt.offsetMax = Vector2.zero;
+
+        phase2AlertBgImage = bgObj.AddComponent<Image>();
+        phase2AlertBgImage.sprite = whiteSp;
+        phase2AlertBgImage.color = new Color(0f, 0f, 0f, 0.52f);
+        phase2AlertBgImage.raycastTarget = false;
+
+        // Franja central de alerta táctica de alta prioridad
+        GameObject bandObj = new GameObject("Phase2AlertBand", typeof(RectTransform));
+        bandObj.transform.SetParent(phase2AlertObj.transform, false);
+        phase2AlertBandRt = bandObj.GetComponent<RectTransform>();
+        phase2AlertBandRt.anchorMin = new Vector2(0f, 0.5f);
+        phase2AlertBandRt.anchorMax = new Vector2(1f, 0.5f);
+        phase2AlertBandRt.pivot = new Vector2(0.5f, 0.5f);
+        phase2AlertBandRt.anchoredPosition = Vector2.zero;
+        phase2AlertBandRt.sizeDelta = new Vector2(0f, 212f);
+
+        GameObject bandBgObj = new GameObject("BandCoreBg", typeof(RectTransform));
+        bandBgObj.transform.SetParent(bandObj.transform, false);
+        RectTransform bandBgRt = bandBgObj.GetComponent<RectTransform>();
+        bandBgRt.anchorMin = Vector2.zero;
+        bandBgRt.anchorMax = Vector2.one;
+        bandBgRt.offsetMin = Vector2.zero;
+        bandBgRt.offsetMax = Vector2.zero;
+        Image bandBgImg = bandBgObj.AddComponent<Image>();
+        bandBgImg.sprite = whiteSp;
+        bandBgImg.color = new Color(0.06f, 0.02f, 0.03f, 0.78f);
+        bandBgImg.raycastTarget = false;
+
+        // Franjas superior e inferior parpadeantes (amarillo/rojo sincronizadas)
+        GameObject topHazardObj = new GameObject("BandTopHazard", typeof(RectTransform));
+        topHazardObj.transform.SetParent(bandObj.transform, false);
+        RectTransform thRt = topHazardObj.GetComponent<RectTransform>();
+        thRt.anchorMin = new Vector2(0f, 1f);
+        thRt.anchorMax = new Vector2(1f, 1f);
+        thRt.pivot = new Vector2(0.5f, 1f);
+        thRt.anchoredPosition = Vector2.zero;
+        thRt.sizeDelta = new Vector2(0f, 4f);
+        phase2AlertTopLine = topHazardObj.AddComponent<Image>();
+        phase2AlertTopLine.sprite = whiteSp;
+        phase2AlertTopLine.color = new Color(1f, 0.90f, 0.08f, 1f);
+        phase2AlertTopLine.raycastTarget = false;
+
+        GameObject botHazardObj = new GameObject("BandBottomHazard", typeof(RectTransform));
+        botHazardObj.transform.SetParent(bandObj.transform, false);
+        RectTransform bhRt = botHazardObj.GetComponent<RectTransform>();
+        bhRt.anchorMin = new Vector2(0f, 0f);
+        bhRt.anchorMax = new Vector2(1f, 0f);
+        bhRt.pivot = new Vector2(0.5f, 0f);
+        bhRt.anchoredPosition = Vector2.zero;
+        bhRt.sizeDelta = new Vector2(0f, 4f);
+        phase2AlertBottomLine = botHazardObj.AddComponent<Image>();
+        phase2AlertBottomLine.sprite = whiteSp;
+        phase2AlertBottomLine.color = new Color(1f, 0.90f, 0.08f, 1f);
+        phase2AlertBottomLine.raycastTarget = false;
+
+        // Etiqueta táctica superior de radar
+        GameObject eyebrowObj = new GameObject("Phase2AlertEyebrow", typeof(RectTransform));
+        eyebrowObj.transform.SetParent(bandObj.transform, false);
+        RectTransform eyeRt = eyebrowObj.GetComponent<RectTransform>();
+        eyeRt.anchorMin = new Vector2(0.05f, 1f);
+        eyeRt.anchorMax = new Vector2(0.95f, 1f);
+        eyeRt.pivot = new Vector2(0.5f, 1f);
+        eyeRt.anchoredPosition = new Vector2(0f, -14f);
+        eyeRt.sizeDelta = new Vector2(0f, 30f);
+        phase2AlertEyebrowText = eyebrowObj.AddComponent<TextMeshProUGUI>();
+        if (hudFont != null) phase2AlertEyebrowText.font = hudFont;
+        phase2AlertEyebrowText.alignment = TextAlignmentOptions.Center;
+        phase2AlertEyebrowText.fontSize = 18;
+        phase2AlertEyebrowText.fontStyle = FontStyles.Bold;
+        phase2AlertEyebrowText.characterSpacing = 6f;
+        phase2AlertEyebrowText.color = new Color(1f, 0.85f, 0.35f, 0.95f);
+        phase2AlertEyebrowText.textWrappingMode = TextWrappingModes.NoWrap;
+        phase2AlertEyebrowText.raycastTarget = false;
+
+        // Sombra oscura del texto principal para máxima legibilidad
+        GameObject shadowObj = new GameObject("Phase2AlertShadow", typeof(RectTransform));
+        shadowObj.transform.SetParent(bandObj.transform, false);
+        RectTransform shadowRt = shadowObj.GetComponent<RectTransform>();
+        shadowRt.anchorMin = new Vector2(0.04f, 0.5f);
+        shadowRt.anchorMax = new Vector2(0.96f, 0.5f);
+        shadowRt.pivot = new Vector2(0.5f, 0.5f);
+        shadowRt.anchoredPosition = new Vector2(4f, 2f);
+        shadowRt.sizeDelta = new Vector2(0f, 84f);
+
+        phase2AlertShadowText = shadowObj.AddComponent<TextMeshProUGUI>();
+        if (hudFont != null) phase2AlertShadowText.font = hudFont;
+        phase2AlertShadowText.alignment = TextAlignmentOptions.Center;
+        phase2AlertShadowText.fontSize = 62;
+        phase2AlertShadowText.fontStyle = FontStyles.Bold;
+        phase2AlertShadowText.characterSpacing = 3.5f;
+        phase2AlertShadowText.color = new Color(0f, 0f, 0f, 0.94f);
+        phase2AlertShadowText.enableAutoSizing = true;
+        phase2AlertShadowText.fontSizeMin = 30;
+        phase2AlertShadowText.fontSizeMax = 64;
+        phase2AlertShadowText.textWrappingMode = TextWrappingModes.NoWrap;
+        phase2AlertShadowText.raycastTarget = false;
+
+        // Texto frontal "NUEVOS ENEMIGOS DETECTADOS" que intercala entre amarillo y rojo
+        GameObject textObj = new GameObject("Phase2AlertText", typeof(RectTransform));
+        textObj.transform.SetParent(bandObj.transform, false);
+        RectTransform textRt = textObj.GetComponent<RectTransform>();
+        textRt.anchorMin = new Vector2(0.04f, 0.5f);
+        textRt.anchorMax = new Vector2(0.96f, 0.5f);
+        textRt.pivot = new Vector2(0.5f, 0.5f);
+        textRt.anchoredPosition = new Vector2(0f, 6f);
+        textRt.sizeDelta = new Vector2(0f, 84f);
+
+        phase2AlertText = textObj.AddComponent<TextMeshProUGUI>();
+        if (hudFont != null) phase2AlertText.font = hudFont;
+        phase2AlertText.alignment = TextAlignmentOptions.Center;
+        phase2AlertText.fontSize = 62;
+        phase2AlertText.fontStyle = FontStyles.Bold;
+        phase2AlertText.characterSpacing = 3.5f;
+        phase2AlertText.color = new Color(1f, 0.92f, 0.08f, 1f);
+        phase2AlertText.enableAutoSizing = true;
+        phase2AlertText.fontSizeMin = 30;
+        phase2AlertText.fontSizeMax = 64;
+        phase2AlertText.textWrappingMode = TextWrappingModes.NoWrap;
+        phase2AlertText.raycastTarget = false;
+
+        // Subtítulo táctico detallado debajo de la alerta
+        GameObject subObj = new GameObject("Phase2AlertSubtitle", typeof(RectTransform));
+        subObj.transform.SetParent(bandObj.transform, false);
+        RectTransform subRt = subObj.GetComponent<RectTransform>();
+        subRt.anchorMin = new Vector2(0.05f, 0f);
+        subRt.anchorMax = new Vector2(0.95f, 0f);
+        subRt.pivot = new Vector2(0.5f, 0f);
+        subRt.anchoredPosition = new Vector2(0f, 18f);
+        subRt.sizeDelta = new Vector2(0f, 34f);
+        phase2AlertSubText = subObj.AddComponent<TextMeshProUGUI>();
+        if (hudFont != null) phase2AlertSubText.font = hudFont;
+        phase2AlertSubText.alignment = TextAlignmentOptions.Center;
+        phase2AlertSubText.fontSize = 20;
+        phase2AlertSubText.fontStyle = FontStyles.Bold;
+        phase2AlertSubText.characterSpacing = 2.4f;
+        phase2AlertSubText.color = new Color(0.98f, 0.94f, 0.84f, 0.96f);
+        phase2AlertSubText.enableAutoSizing = true;
+        phase2AlertSubText.fontSizeMin = 13;
+        phase2AlertSubText.fontSizeMax = 20;
+        phase2AlertSubText.textWrappingMode = TextWrappingModes.NoWrap;
+        phase2AlertSubText.raycastTarget = false;
+
+        phase2AlertObj.SetActive(false);
+    }
+
+    public void ShowPhase2EnemyAlert(string message = "NUEVOS ENEMIGOS DETECTADOS", float duration = 3.0f)
+    {
+        EnsurePhase2AlertUI();
+        if (phase2AlertObj == null) return;
+
+        string msg = string.IsNullOrEmpty(message) ? "NUEVOS ENEMIGOS DETECTADOS" : message;
+        if (phase2AlertEyebrowText != null)
+            phase2AlertEyebrowText.text = "[  ALERTA DE RADAR  •  FASE 2 DEL LEVIATÁN  ]";
+        if (phase2AlertShadowText != null) phase2AlertShadowText.text = msg;
+        if (phase2AlertText != null) phase2AlertText.text = msg;
+        if (phase2AlertSubText != null)
+            phase2AlertSubText.text = "ESCUDO DEL JEFE ACTIVADO  •  ESCUADRÓN TIER 4 EN CAMINO  •  ¡ESQUIVA A LOS COSTADOS!";
+
+        phase2AlertObj.SetActive(true);
+        if (phase2AlertCoroutine != null)
+        {
+            StopCoroutine(phase2AlertCoroutine);
+        }
+        phase2AlertCoroutine = StartCoroutine(Phase2AlertRoutine(Mathf.Max(0.5f, duration)));
+    }
+
+    private IEnumerator Phase2AlertRoutine(float duration)
+    {
+        if (phase2AlertCanvasGroup == null) yield break;
+
+        Color brightYellow = new Color(1f, 0.90f, 0.08f, 1f);
+        Color brightRed = new Color(1f, 0.14f, 0.14f, 1f);
+
+        float elapsed = 0f;
+        const float flashInterval = 0.22f; // Intercala claramente entre amarillo y rojo durante los 3 segundos
+
+        while (elapsed < duration)
+        {
+            elapsed += Time.unscaledDeltaTime;
+
+            // Suave entrada en los primeros 0.12s y salida limpia en los últimos 0.25s dentro de los 3 segundos totales
+            float alpha = 1f;
+            if (elapsed < 0.12f)
+            {
+                alpha = Mathf.Clamp01(elapsed / 0.12f);
+            }
+            else if (elapsed > duration - 0.25f)
+            {
+                alpha = Mathf.Clamp01((duration - elapsed) / 0.25f);
+            }
+            phase2AlertCanvasGroup.alpha = alpha;
+
+            bool isYellowPhase = (Mathf.FloorToInt(elapsed / flashInterval) % 2) == 0;
+            Color activeCol = isYellowPhase ? brightYellow : brightRed;
+            if (phase2AlertText != null) phase2AlertText.color = activeCol;
+            if (phase2AlertTopLine != null) phase2AlertTopLine.color = activeCol;
+            if (phase2AlertBottomLine != null) phase2AlertBottomLine.color = activeCol;
+            if (phase2AlertEyebrowText != null)
+                phase2AlertEyebrowText.color = isYellowPhase ? new Color(1f, 0.92f, 0.45f, 0.96f) : new Color(1f, 0.45f, 0.45f, 0.96f);
+
+            // Ligera respiración de escala para sensación de alarma activa
+            if (phase2AlertBandRt != null)
+            {
+                float pulse = 1.0f + 0.022f * Mathf.Sin(elapsed * 14f);
+                phase2AlertBandRt.localScale = new Vector3(1f, pulse, 1f);
+            }
+
+            yield return null;
+        }
+
+        phase2AlertCanvasGroup.alpha = 0f;
+        if (phase2AlertBandRt != null) phase2AlertBandRt.localScale = Vector3.one;
+        if (phase2AlertObj != null) phase2AlertObj.SetActive(false);
+        phase2AlertCoroutine = null;
+    }
+
+    public void HidePhase2AlertImmediately()
+    {
+        if (phase2AlertCoroutine != null)
+        {
+            StopCoroutine(phase2AlertCoroutine);
+            phase2AlertCoroutine = null;
+        }
+        if (phase2AlertCanvasGroup != null)
+        {
+            phase2AlertCanvasGroup.alpha = 0f;
+        }
+        if (phase2AlertBandRt != null)
+        {
+            phase2AlertBandRt.localScale = Vector3.one;
+        }
+        if (phase2AlertObj != null)
+        {
+            phase2AlertObj.SetActive(false);
+        }
+    }
+
+    // --- CARTELITO EMERGENTE DE CAMBIO DE ARMA (1P abajo-izq / 2P abajo-der) ---
+
+    private static Sprite GetBlastersIconSprite()
+    {
+        if (cachedBlastersIconSprite != null) return cachedBlastersIconSprite;
+
+        const int size = 64;
+        Texture2D tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
+        tex.filterMode = FilterMode.Bilinear;
+        tex.wrapMode = TextureWrapMode.Clamp;
+
+        for (int y = 0; y < size; y++)
+        {
+            for (int x = 0; x < size; x++)
+            {
+                float u = (x + 0.5f) / size; // 0..1
+                float v = (y + 0.5f) / size; // 0..1
+                Color col = Color.clear;
+
+                // Dos cañones bláster paralelos disparando rayos celestes hacia arriba
+                for (int b = 0; b < 2; b++)
+                {
+                    float cx = (b == 0) ? 0.34f : 0.66f;
+                    float dx = Mathf.Abs(u - cx);
+
+                    // Base metálica del cañón (v = 0.14..0.38)
+                    if (v >= 0.14f && v <= 0.38f && dx <= 0.085f)
+                    {
+                        float shade = 1f - (dx / 0.085f) * 0.35f;
+                        col = new Color(0.55f * shade, 0.80f * shade, 0.96f * shade, 1f);
+                    }
+
+                    // Rayo láser bláster disparando hacia arriba (v = 0.42..0.90)
+                    if (v >= 0.40f && v <= 0.92f)
+                    {
+                        float beamDist = dx / 0.068f;
+                        float tipFade = 1f - Mathf.SmoothStep(0.82f, 0.92f, v);
+                        float tailFade = Mathf.SmoothStep(0.38f, 0.48f, v);
+                        float glow = Mathf.Exp(-beamDist * beamDist * 1.4f) * tipFade * tailFade;
+                        float core = Mathf.Exp(-beamDist * beamDist * 6.5f) * tipFade * tailFade;
+                        if (glow > 0.02f)
+                        {
+                            Color boltCol = Color.Lerp(new Color(0.10f, 0.78f, 1f, glow), Color.white, core);
+                            boltCol.a = Mathf.Clamp01(Mathf.Max(col.a, glow));
+                            col = boltCol;
+                        }
+                    }
+
+                    // Destello circular en la boca del cañón (v = 0.40)
+                    float md = Vector2.Distance(new Vector2(u, v), new Vector2(cx, 0.40f));
+                    if (md < 0.12f)
+                    {
+                        float mGlow = Mathf.Pow(1f - md / 0.12f, 2f);
+                        col = Color.Lerp(col, new Color(0.75f, 0.96f, 1f, 1f), mGlow);
+                        col.a = Mathf.Clamp01(Mathf.Max(col.a, mGlow));
+                    }
+                }
+
+                // Puente central conector entre ambos cañones (v = 0.18..0.28)
+                if (v >= 0.18f && v <= 0.27f && u >= 0.32f && u <= 0.68f)
+                {
+                    col = new Color(0.35f, 0.65f, 0.88f, 1f);
+                }
+
+                tex.SetPixel(x, y, col);
+            }
+        }
+        tex.Apply();
+
+        cachedBlastersIconSprite = Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f));
+        return cachedBlastersIconSprite;
+    }
+
+    private static Sprite GetPlasmaChargedIconSprite()
+    {
+        if (cachedPlasmaIconSprite != null) return cachedPlasmaIconSprite;
+
+        const int size = 64;
+        Texture2D tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
+        tex.filterMode = FilterMode.Bilinear;
+        tex.wrapMode = TextureWrapMode.Clamp;
+
+        float half = (size - 1) * 0.5f;
+        for (int y = 0; y < size; y++)
+        {
+            for (int x = 0; x < size; x++)
+            {
+                float dx = (x - half) / half;
+                float dy = (y - half) / half;
+                float r = Mathf.Sqrt(dx * dx + dy * dy);
+                float angle = Mathf.Atan2(dy, dx);
+
+                // Núcleo brillante de plasma cargado + anillos energéticos + destellos en cruz
+                float core = Mathf.Exp(-r * r * 6.5f);
+                float midGlow = Mathf.Exp(-r * r * 2.4f) * 0.85f;
+                float outerRing = Mathf.Exp(-Mathf.Pow((r - 0.72f) / 0.085f, 2f)) * 0.90f;
+                float flare = (Mathf.Pow(Mathf.Abs(Mathf.Cos(angle * 2f)), 10f) * Mathf.Clamp01(1f - r / 0.96f)) * 0.65f;
+
+                float alpha = Mathf.Clamp01(Mathf.Max(core, Mathf.Max(midGlow, Mathf.Max(outerRing, flare))));
+                Color outerCol = new Color(0.86f, 0.28f, 1f, alpha); // Magenta/violeta plasma
+                Color warmCol = new Color(1f, 0.72f, 0.25f, alpha);  // Halo dorado energético
+                Color finalCol = Color.Lerp(outerCol, warmCol, Mathf.Clamp01(outerRing * 0.6f + flare));
+                finalCol = Color.Lerp(finalCol, Color.white, Mathf.Clamp01(core * 1.15f));
+                finalCol.a = alpha;
+
+                tex.SetPixel(x, y, finalCol);
+            }
+        }
+        tex.Apply();
+
+        cachedPlasmaIconSprite = Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f));
+        return cachedPlasmaIconSprite;
+    }
+
+    private WeaponToastUI EnsureWeaponToast(bool isPlayer2)
+    {
+        WeaponToastUI existing = isPlayer2 ? p2WeaponToast : p1WeaponToast;
+        if (existing != null && existing.rootObj != null) return existing;
+
+        Canvas canvas = GetComponentInParent<Canvas>();
+        if (canvas == null) canvas = FindAnyObjectByType<Canvas>();
+        if (canvas == null) return null;
+
+        Sprite whiteSp = GetHudWhiteSprite();
+        TMP_FontAsset hudFont = (healthText != null && healthText.font != null) ? healthText.font : null;
+
+        WeaponToastUI ui = new WeaponToastUI();
+        ui.shownY = isPlayer2 ? 74f : 20f;
+        ui.hiddenY = isPlayer2 ? -8f : -84f;
+
+        GameObject root = new GameObject(isPlayer2 ? "WeaponToast_2P" : "WeaponToast_1P", typeof(RectTransform), typeof(CanvasGroup));
+        root.transform.SetParent(transform.parent != null ? transform.parent : canvas.transform, false);
+        RectTransform rt = root.GetComponent<RectTransform>();
+        rt.anchorMin = new Vector2(isPlayer2 ? 1f : 0f, 0f);
+        rt.anchorMax = new Vector2(isPlayer2 ? 1f : 0f, 0f);
+        rt.pivot = new Vector2(isPlayer2 ? 1f : 0f, 0f);
+        rt.anchoredPosition = new Vector2(isPlayer2 ? -18f : 18f, ui.hiddenY);
+        rt.sizeDelta = new Vector2(272f, 66f);
+
+        ui.rootObj = root;
+        ui.rt = rt;
+        ui.canvasGroup = root.GetComponent<CanvasGroup>();
+        ui.canvasGroup.alpha = 0f;
+        ui.canvasGroup.blocksRaycasts = false;
+        ui.canvasGroup.interactable = false;
+
+        // Fondo oscuro translúcido táctico
+        GameObject bgObj = new GameObject("ToastBg", typeof(RectTransform));
+        bgObj.transform.SetParent(root.transform, false);
+        RectTransform bgRt = bgObj.GetComponent<RectTransform>();
+        bgRt.anchorMin = Vector2.zero;
+        bgRt.anchorMax = Vector2.one;
+        bgRt.offsetMin = Vector2.zero;
+        bgRt.offsetMax = Vector2.zero;
+        Image bgImg = bgObj.AddComponent<Image>();
+        bgImg.sprite = whiteSp;
+        bgImg.color = new Color(0.03f, 0.06f, 0.14f, 0.88f);
+        bgImg.raycastTarget = false;
+
+        // Borde superior fino
+        GameObject topEdgeObj = new GameObject("TopEdge", typeof(RectTransform));
+        topEdgeObj.transform.SetParent(root.transform, false);
+        RectTransform teRt = topEdgeObj.GetComponent<RectTransform>();
+        teRt.anchorMin = new Vector2(0f, 1f);
+        teRt.anchorMax = new Vector2(1f, 1f);
+        teRt.pivot = new Vector2(0.5f, 1f);
+        teRt.anchoredPosition = Vector2.zero;
+        teRt.sizeDelta = new Vector2(0f, 2f);
+        Image teImg = topEdgeObj.AddComponent<Image>();
+        teImg.sprite = whiteSp;
+        teImg.color = new Color(0.60f, 0.85f, 1f, 0.30f);
+        teImg.raycastTarget = false;
+
+        // Franja de acento lateral
+        GameObject accentObj = new GameObject("AccentBar", typeof(RectTransform));
+        accentObj.transform.SetParent(root.transform, false);
+        RectTransform accRt = accentObj.GetComponent<RectTransform>();
+        accRt.anchorMin = new Vector2(isPlayer2 ? 1f : 0f, 0f);
+        accRt.anchorMax = new Vector2(isPlayer2 ? 1f : 0f, 1f);
+        accRt.pivot = new Vector2(isPlayer2 ? 1f : 0f, 0.5f);
+        accRt.anchoredPosition = Vector2.zero;
+        accRt.sizeDelta = new Vector2(5f, 0f);
+        ui.accentBar = accentObj.AddComponent<Image>();
+        ui.accentBar.sprite = whiteSp;
+        ui.accentBar.raycastTarget = false;
+
+        // Recuadro del ícono del arma
+        GameObject iconBoxObj = new GameObject("WeaponIconBox", typeof(RectTransform));
+        iconBoxObj.transform.SetParent(root.transform, false);
+        RectTransform ibRt = iconBoxObj.GetComponent<RectTransform>();
+        ibRt.anchorMin = new Vector2(isPlayer2 ? 1f : 0f, 0.5f);
+        ibRt.anchorMax = new Vector2(isPlayer2 ? 1f : 0f, 0.5f);
+        ibRt.pivot = new Vector2(isPlayer2 ? 1f : 0f, 0.5f);
+        ibRt.anchoredPosition = new Vector2(isPlayer2 ? -14f : 14f, 0f);
+        ibRt.sizeDelta = new Vector2(46f, 46f);
+        ui.iconFrameBg = iconBoxObj.AddComponent<Image>();
+        ui.iconFrameBg.sprite = whiteSp;
+        ui.iconFrameBg.color = new Color(0.08f, 0.14f, 0.26f, 0.92f);
+        ui.iconFrameBg.raycastTarget = false;
+
+        // Dibujo del ícono del arma (Blásters o Plasma Cargado)
+        GameObject iconImgObj = new GameObject("WeaponIcon", typeof(RectTransform));
+        iconImgObj.transform.SetParent(iconBoxObj.transform, false);
+        RectTransform iiRt = iconImgObj.GetComponent<RectTransform>();
+        iiRt.anchorMin = Vector2.zero;
+        iiRt.anchorMax = Vector2.one;
+        iiRt.offsetMin = new Vector2(3f, 3f);
+        iiRt.offsetMax = new Vector2(-3f, -3f);
+        ui.iconImage = iconImgObj.AddComponent<Image>();
+        ui.iconImage.preserveAspect = true;
+        ui.iconImage.raycastTarget = false;
+
+        // Etiqueta superior ("1P ARMA ACTIVA" / "2P ARMA ACTIVA")
+        GameObject eyeObj = new GameObject("WeaponEyebrow", typeof(RectTransform));
+        eyeObj.transform.SetParent(root.transform, false);
+        RectTransform eyeRt = eyeObj.GetComponent<RectTransform>();
+        eyeRt.anchorMin = new Vector2(0f, 1f);
+        eyeRt.anchorMax = new Vector2(1f, 1f);
+        eyeRt.pivot = new Vector2(0.5f, 1f);
+        eyeRt.offsetMin = new Vector2(isPlayer2 ? 12f : 70f, -25f);
+        eyeRt.offsetMax = new Vector2(isPlayer2 ? -70f : -12f, -8f);
+        ui.eyebrowText = eyeObj.AddComponent<TextMeshProUGUI>();
+        if (hudFont != null) ui.eyebrowText.font = hudFont;
+        ui.eyebrowText.alignment = isPlayer2 ? TextAlignmentOptions.Right : TextAlignmentOptions.Left;
+        ui.eyebrowText.fontSize = 12;
+        ui.eyebrowText.fontStyle = FontStyles.Bold;
+        ui.eyebrowText.characterSpacing = 2.4f;
+        ui.eyebrowText.textWrappingMode = TextWrappingModes.NoWrap;
+        ui.eyebrowText.raycastTarget = false;
+
+        // Nombre principal del arma ("BLÁSTERS" o "PLASMA CARGADO")
+        GameObject nameObj = new GameObject("WeaponName", typeof(RectTransform));
+        nameObj.transform.SetParent(root.transform, false);
+        RectTransform nameRt = nameObj.GetComponent<RectTransform>();
+        nameRt.anchorMin = new Vector2(0f, 0f);
+        nameRt.anchorMax = new Vector2(1f, 0f);
+        nameRt.pivot = new Vector2(0.5f, 0f);
+        nameRt.offsetMin = new Vector2(isPlayer2 ? 12f : 70f, 10f);
+        nameRt.offsetMax = new Vector2(isPlayer2 ? -70f : -12f, 40f);
+        ui.weaponNameText = nameObj.AddComponent<TextMeshProUGUI>();
+        if (hudFont != null) ui.weaponNameText.font = hudFont;
+        ui.weaponNameText.alignment = isPlayer2 ? TextAlignmentOptions.Right : TextAlignmentOptions.Left;
+        ui.weaponNameText.fontSize = 21;
+        ui.weaponNameText.fontStyle = FontStyles.Bold;
+        ui.weaponNameText.characterSpacing = 1.6f;
+        ui.weaponNameText.enableAutoSizing = true;
+        ui.weaponNameText.fontSizeMin = 15;
+        ui.weaponNameText.fontSizeMax = 21;
+        ui.weaponNameText.textWrappingMode = TextWrappingModes.NoWrap;
+        ui.weaponNameText.raycastTarget = false;
+
+        root.SetActive(false);
+
+        if (isPlayer2) p2WeaponToast = ui;
+        else p1WeaponToast = ui;
+        return ui;
+    }
+
+    public void ShowWeaponSwitchPopup(bool isPlayer2, bool isChargedMode)
+    {
+        WeaponToastUI ui = EnsureWeaponToast(isPlayer2);
+        if (ui == null || ui.rootObj == null) return;
+
+        Color accent = isChargedMode
+            ? new Color(0.86f, 0.34f, 1.0f, 1f)  // Plasma cargado (violeta-magenta)
+            : new Color(0.18f, 0.82f, 1.0f, 1f); // Blásters (celeste eléctrico)
+
+        if (ui.accentBar != null) ui.accentBar.color = accent;
+        if (ui.iconFrameBg != null) ui.iconFrameBg.color = new Color(accent.r * 0.18f, accent.g * 0.18f, accent.b * 0.24f, 0.92f);
+        if (ui.iconImage != null) ui.iconImage.sprite = isChargedMode ? GetPlasmaChargedIconSprite() : GetBlastersIconSprite();
+
+        if (ui.eyebrowText != null)
+        {
+            ui.eyebrowText.text = isPlayer2 ? "2P  •  ARMA ACTIVA" : "1P  •  ARMA ACTIVA";
+            ui.eyebrowText.color = Color.Lerp(accent, Color.white, 0.45f);
+        }
+        if (ui.weaponNameText != null)
+        {
+            ui.weaponNameText.text = isChargedMode ? "PLASMA CARGADO" : "BLÁSTERS";
+            ui.weaponNameText.color = Color.white;
+        }
+
+        ui.rootObj.SetActive(true);
+        if (ui.routine != null) StopCoroutine(ui.routine);
+        ui.routine = StartCoroutine(WeaponToastRoutine(ui));
+    }
+
+    private IEnumerator WeaponToastRoutine(WeaponToastUI ui)
+    {
+        if (ui == null || ui.rt == null || ui.canvasGroup == null) yield break;
+
+        float xPos = ui.rt.anchoredPosition.x;
+
+        // 1. Sube desde abajo (0.20s con ease-out)
+        const float slideInDur = 0.20f;
+        float elapsed = 0f;
+        while (elapsed < slideInDur)
+        {
+            elapsed += Time.unscaledDeltaTime;
+            float t = Mathf.Clamp01(elapsed / slideInDur);
+            float ease = 1f - (1f - t) * (1f - t);
+            ui.rt.anchoredPosition = new Vector2(xPos, Mathf.Lerp(ui.hiddenY, ui.shownY, ease));
+            ui.canvasGroup.alpha = ease;
+            yield return null;
+        }
+        ui.rt.anchoredPosition = new Vector2(xPos, ui.shownY);
+        ui.canvasGroup.alpha = 1f;
+
+        // 2. Permanece visible 1.75s
+        const float holdDur = 1.75f;
+        elapsed = 0f;
+        while (elapsed < holdDur)
+        {
+            elapsed += Time.unscaledDeltaTime;
+            yield return null;
+        }
+
+        // 3. Vuelve a bajar suavemente (0.28s)
+        const float slideOutDur = 0.28f;
+        elapsed = 0f;
+        while (elapsed < slideOutDur)
+        {
+            elapsed += Time.unscaledDeltaTime;
+            float t = Mathf.Clamp01(elapsed / slideOutDur);
+            float ease = t * t;
+            ui.rt.anchoredPosition = new Vector2(xPos, Mathf.Lerp(ui.shownY, ui.hiddenY, ease));
+            ui.canvasGroup.alpha = 1f - ease;
+            yield return null;
+        }
+
+        ui.canvasGroup.alpha = 0f;
+        ui.rt.anchoredPosition = new Vector2(xPos, ui.hiddenY);
+        if (ui.rootObj != null) ui.rootObj.SetActive(false);
+        ui.routine = null;
+    }
+
+    public void HideWeaponToastsImmediately()
+    {
+        HideSingleWeaponToast(p1WeaponToast);
+        HideSingleWeaponToast(p2WeaponToast);
+    }
+
+    private void HideSingleWeaponToast(WeaponToastUI ui)
+    {
+        if (ui == null) return;
+        if (ui.routine != null) { StopCoroutine(ui.routine); ui.routine = null; }
+        if (ui.canvasGroup != null) ui.canvasGroup.alpha = 0f;
+        if (ui.rootObj != null) ui.rootObj.SetActive(false);
     }
 
     // --- MÉTODOS DE LA BARRA DE VIDA DEL JEFE ---
@@ -402,30 +1574,55 @@ public class HUDManager : MonoBehaviour
         bossTrailingFill = 0f;
         bossBarAlpha = 0f;
         isBossDefeated = false;
+        isBossPhase2 = false;
+        isBossInvulnerable = false;
         isBossBarActive = true;
 
         if (timerText != null)
         {
             timerText.text = "";
         }
+        if (timerCardObj != null)
+        {
+            timerCardObj.SetActive(false);
+        }
+    }
+
+    public void SetBossPhase2(bool active)
+    {
+        isBossPhase2 = active;
+    }
+
+    public void SetBossInvulnerable(bool invulnerable)
+    {
+        isBossInvulnerable = invulnerable;
     }
 
     public void UpdateBossHealth(float currentHp)
     {
         if (!isBossBarActive) return;
 
-        if (currentHp < bossCurrentHealth)
+        float clampedHp = Mathf.Max(0f, currentHp);
+        if (clampedHp < bossCurrentHealth)
         {
             lastDamageTime = Time.time;
             bossTrailingFill = Mathf.Max(bossTrailingFill, bossDisplayFill);
         }
+        else if (clampedHp > bossCurrentHealth)
+        {
+            // Al curarse (entrada a Fase 2), alinear la barra fantasma con el nuevo porcentaje
+            float targetPct = Mathf.Clamp01(clampedHp / Mathf.Max(1f, bossMaxHealth));
+            bossTrailingFill = Mathf.Max(bossTrailingFill, targetPct);
+        }
 
-        bossCurrentHealth = Mathf.Max(0f, currentHp);
+        bossCurrentHealth = clampedHp;
     }
 
     public void OnBossDefeated()
     {
         isBossDefeated = true;
+        isBossPhase2 = false;
+        isBossInvulnerable = false;
         bossCurrentHealth = 0f;
     }
 
@@ -470,10 +1667,25 @@ public class HUDManager : MonoBehaviour
         nameStyle.normal.textColor = new Color(0f, 0f, 0f, bossBarAlpha * 0.95f);
         GUI.Label(new Rect(x + 2, y - 26f + 2, barWidth, 24f), titleText, nameStyle);
 
-        // Título frontal vibrante centrado
-        Color nameColor = (hpPct < 0.25f && !isBossDefeated)
-            ? new Color(1f, 0.25f, 0.25f, bossBarAlpha)
-            : new Color(1f, 0.88f, 0.35f, bossBarAlpha);
+        // Título frontal vibrante centrado (gris si es invencible, azul blindado en Fase 2)
+        Color nameColor;
+        if (isBossInvulnerable && !isBossDefeated)
+        {
+            nameColor = new Color(0.76f, 0.80f, 0.85f, bossBarAlpha);
+        }
+        else if (isBossPhase2 && !isBossDefeated)
+        {
+            float shieldPulse = Mathf.Sin(Time.time * 6f) * 0.5f + 0.5f;
+            nameColor = Color.Lerp(new Color(0.42f, 0.85f, 1f, bossBarAlpha), new Color(0.80f, 0.96f, 1f, bossBarAlpha), shieldPulse);
+        }
+        else if (hpPct < 0.25f && !isBossDefeated)
+        {
+            nameColor = new Color(1f, 0.25f, 0.25f, bossBarAlpha);
+        }
+        else
+        {
+            nameColor = new Color(1f, 0.88f, 0.35f, bossBarAlpha);
+        }
         nameStyle.normal.textColor = nameColor;
         GUI.Label(new Rect(x, y - 26f, barWidth, 24f), titleText, nameStyle);
 
@@ -486,9 +1698,18 @@ public class HUDManager : MonoBehaviour
         GUI.color = new Color(0.04f, 0.07f, 0.14f, bossBarAlpha * 0.96f);
         GUI.DrawTexture(new Rect(x, y, barWidth, barHeight), white);
 
-        // Borde Neón: azul cian normal, rojo furia parpadeante en fase crítica (< 25%)
+        // Borde Neón: gris metálico cuando es invencible, azul en Fase 2, rojo furia en crítico (< 25%) en Fase 1
         Color borderColor;
-        if (hpPct < 0.25f && !isBossDefeated)
+        if (isBossInvulnerable && !isBossDefeated)
+        {
+            borderColor = new Color(0.70f, 0.74f, 0.80f, 0.95f);
+        }
+        else if (isBossPhase2 && !isBossDefeated)
+        {
+            float pulse = Mathf.Sin(Time.time * 8f) * 0.5f + 0.5f;
+            borderColor = Color.Lerp(new Color(0.18f, 0.72f, 1f, 1f), new Color(0.70f, 0.95f, 1f, 1f), pulse);
+        }
+        else if (hpPct < 0.25f && !isBossDefeated)
         {
             float pulse = Mathf.Sin(Time.time * 14f) * 0.5f + 0.5f;
             borderColor = Color.Lerp(new Color(1f, 0.15f, 0.25f, 1f), new Color(1f, 0.75f, 0.75f, 1f), pulse);
@@ -514,17 +1735,38 @@ public class HUDManager : MonoBehaviour
         if (bossTrailingFill > bossDisplayFill)
         {
             float trailW = innerW * Mathf.Clamp01(bossTrailingFill);
-            GUI.color = new Color(1f, 0.88f, 0.35f, bossBarAlpha * 0.88f);
+            if (isBossInvulnerable && !isBossDefeated)
+                GUI.color = new Color(0.68f, 0.71f, 0.76f, bossBarAlpha * 0.80f);
+            else if (isBossPhase2)
+                GUI.color = new Color(0.65f, 0.92f, 1f, bossBarAlpha * 0.85f);
+            else
+                GUI.color = new Color(1f, 0.88f, 0.35f, bossBarAlpha * 0.88f);
             GUI.DrawTexture(new Rect(innerX, innerY, trailW, innerH), white);
         }
 
-        // 4. BARRA DE VIDA PRINCIPAL (Gradiente de Energía Carmesí / Fuego)
+        // 4. BARRA DE VIDA PRINCIPAL (Gris si es invencible; Azul blindado en Fase 2; Carmesí/Fuego en Fase 1)
         if (bossDisplayFill > 0.001f)
         {
             float fillW = innerW * Mathf.Clamp01(bossDisplayFill);
 
             Color barColor;
-            if (hpPct > 0.50f)
+            if (isBossInvulnerable && !isBossDefeated)
+            {
+                float invulnPulse = Mathf.Sin(Time.time * 5f) * 0.5f + 0.5f;
+                barColor = Color.Lerp(
+                    new Color(0.46f, 0.49f, 0.54f, 1f),
+                    new Color(0.60f, 0.64f, 0.69f, 1f),
+                    invulnPulse * 0.45f);
+            }
+            else if (isBossPhase2 && !isBossDefeated)
+            {
+                float shieldShimmer = Mathf.Sin(Time.time * 7f) * 0.5f + 0.5f;
+                barColor = Color.Lerp(
+                    new Color(0.10f, 0.50f, 0.96f, 1f),
+                    new Color(0.24f, 0.76f, 1.00f, 1f),
+                    shieldShimmer * 0.45f);
+            }
+            else if (hpPct > 0.50f)
             {
                 barColor = new Color(0.95f, 0.18f, 0.25f, 1f); // Carmesí intenso
             }
@@ -543,7 +1785,12 @@ public class HUDManager : MonoBehaviour
             GUI.DrawTexture(new Rect(innerX, innerY, fillW, innerH), white);
 
             // Reflejo superior estilo cristal de energía
-            GUI.color = new Color(1f, 1f, 1f, bossBarAlpha * 0.30f);
+            if (isBossInvulnerable && !isBossDefeated)
+                GUI.color = new Color(0.86f, 0.89f, 0.93f, bossBarAlpha * 0.30f);
+            else if (isBossPhase2)
+                GUI.color = new Color(0.80f, 0.96f, 1f, bossBarAlpha * 0.42f);
+            else
+                GUI.color = new Color(1f, 1f, 1f, bossBarAlpha * 0.30f);
             GUI.DrawTexture(new Rect(innerX, innerY, fillW, innerH * 0.36f), white);
         }
 
