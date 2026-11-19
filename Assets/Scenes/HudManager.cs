@@ -376,7 +376,7 @@ public class HUDManager : MonoBehaviour
             else
             {
                 string labelColor = currentHealth <= 2 ? "#FF3B30" : "#FB7185";
-                p2PromptText.text = $"<size=62%><color={labelColor}><b>2P INTEGRIDAD</b></color></size>  <color=#F8FAFC><b>{currentHealth}</b></color><color=#64748B>/{maxHealth}</color>";
+                p2PromptText.text = $"<size=62%><color={labelColor}><b>2P VIDA</b></color></size>  <color=#F8FAFC><b>{currentHealth}</b></color><color=#64748B>/{maxHealth}</color>";
             }
         }
         else if (isConnected)
@@ -453,7 +453,7 @@ public class HUDManager : MonoBehaviour
         if (healthText != null)
         {
             float pct = max > 0 ? Mathf.Clamp01((float)current / max) : 0f;
-            string prefix = hasPlayer2 ? "1P INTEGRIDAD" : "INTEGRIDAD";
+            string prefix = hasPlayer2 ? "1P VIDA" : "VIDA";
             string labelColor = pct <= 0.25f ? "#FF4D6D" : (pct <= 0.50f ? "#FBBF24" : "#2DD4BF");
             Color barCol = pct <= 0.25f
                 ? new Color(1f, 0.28f, 0.40f, 1f)
@@ -1667,13 +1667,13 @@ public class HUDManager : MonoBehaviour
         nameStyle.normal.textColor = new Color(0f, 0f, 0f, bossBarAlpha * 0.95f);
         GUI.Label(new Rect(x + 2, y - 26f + 2, barWidth, 24f), titleText, nameStyle);
 
-        // Título frontal vibrante centrado (gris si es invencible, azul blindado en Fase 2)
+        // Título frontal vibrante centrado (gris si es invencible, azul blindado en Fase 1 con escudo, rojo furia en Fase 2)
         Color nameColor;
         if (isBossInvulnerable && !isBossDefeated)
         {
             nameColor = new Color(0.76f, 0.80f, 0.85f, bossBarAlpha);
         }
-        else if (isBossPhase2 && !isBossDefeated)
+        else if (!isBossPhase2 && !isBossDefeated)
         {
             float shieldPulse = Mathf.Sin(Time.time * 6f) * 0.5f + 0.5f;
             nameColor = Color.Lerp(new Color(0.42f, 0.85f, 1f, bossBarAlpha), new Color(0.80f, 0.96f, 1f, bossBarAlpha), shieldPulse);
@@ -1684,7 +1684,7 @@ public class HUDManager : MonoBehaviour
         }
         else
         {
-            nameColor = new Color(1f, 0.88f, 0.35f, bossBarAlpha);
+            nameColor = new Color(1f, 0.55f, 0.25f, bossBarAlpha);
         }
         nameStyle.normal.textColor = nameColor;
         GUI.Label(new Rect(x, y - 26f, barWidth, 24f), titleText, nameStyle);
@@ -1698,13 +1698,13 @@ public class HUDManager : MonoBehaviour
         GUI.color = new Color(0.04f, 0.07f, 0.14f, bossBarAlpha * 0.96f);
         GUI.DrawTexture(new Rect(x, y, barWidth, barHeight), white);
 
-        // Borde Neón: gris metálico cuando es invencible, azul en Fase 2, rojo furia en crítico (< 25%) en Fase 1
+        // Borde Neón: gris metálico cuando es invencible, azul en Fase 1 con escudo, rojo/naranja en Fase 2
         Color borderColor;
         if (isBossInvulnerable && !isBossDefeated)
         {
             borderColor = new Color(0.70f, 0.74f, 0.80f, 0.95f);
         }
-        else if (isBossPhase2 && !isBossDefeated)
+        else if (!isBossPhase2 && !isBossDefeated)
         {
             float pulse = Mathf.Sin(Time.time * 8f) * 0.5f + 0.5f;
             borderColor = Color.Lerp(new Color(0.18f, 0.72f, 1f, 1f), new Color(0.70f, 0.95f, 1f, 1f), pulse);
@@ -1716,7 +1716,7 @@ public class HUDManager : MonoBehaviour
         }
         else
         {
-            borderColor = new Color(0.22f, 0.74f, 0.97f, 0.92f);
+            borderColor = new Color(1f, 0.45f, 0.15f, 0.95f);
         }
         borderColor.a *= bossBarAlpha;
 
@@ -1737,14 +1737,14 @@ public class HUDManager : MonoBehaviour
             float trailW = innerW * Mathf.Clamp01(bossTrailingFill);
             if (isBossInvulnerable && !isBossDefeated)
                 GUI.color = new Color(0.68f, 0.71f, 0.76f, bossBarAlpha * 0.80f);
-            else if (isBossPhase2)
+            else if (!isBossPhase2)
                 GUI.color = new Color(0.65f, 0.92f, 1f, bossBarAlpha * 0.85f);
             else
                 GUI.color = new Color(1f, 0.88f, 0.35f, bossBarAlpha * 0.88f);
             GUI.DrawTexture(new Rect(innerX, innerY, trailW, innerH), white);
         }
 
-        // 4. BARRA DE VIDA PRINCIPAL (Gris si es invencible; Azul blindado en Fase 2; Carmesí/Fuego en Fase 1)
+        // 4. BARRA DE VIDA PRINCIPAL (Gris si es invencible; Azul blindado en Fase 1 con escudo; Carmesí/Fuego en Fase 2)
         if (bossDisplayFill > 0.001f)
         {
             float fillW = innerW * Mathf.Clamp01(bossDisplayFill);
@@ -1758,8 +1758,9 @@ public class HUDManager : MonoBehaviour
                     new Color(0.60f, 0.64f, 0.69f, 1f),
                     invulnPulse * 0.45f);
             }
-            else if (isBossPhase2 && !isBossDefeated)
+            else if (!isBossPhase2 && !isBossDefeated)
             {
+                // Fase 1: Escudo protector azul cibernético activo
                 float shieldShimmer = Mathf.Sin(Time.time * 7f) * 0.5f + 0.5f;
                 barColor = Color.Lerp(
                     new Color(0.10f, 0.50f, 0.96f, 1f),
@@ -1768,7 +1769,7 @@ public class HUDManager : MonoBehaviour
             }
             else if (hpPct > 0.50f)
             {
-                barColor = new Color(0.95f, 0.18f, 0.25f, 1f); // Carmesí intenso
+                barColor = new Color(0.95f, 0.18f, 0.25f, 1f); // Carmesí intenso en Fase 2 (sin escudo)
             }
             else if (hpPct > 0.25f)
             {
@@ -1803,6 +1804,9 @@ public class HUDManager : MonoBehaviour
         }
 
         // 6. NÚMEROS DE HP Y PORCENTAJE CENTRADOS
+        // Restablecer GUI.color a blanco para que el tinte de los divisores oscuros no oscurezca el texto a negro
+        GUI.color = Color.white;
+
         GUIStyle hpStyle = new GUIStyle(GUI.skin.label)
         {
             alignment = TextAnchor.MiddleCenter,
@@ -1812,12 +1816,15 @@ public class HUDManager : MonoBehaviour
 
         string hpText = $"{Mathf.CeilToInt(bossCurrentHealth)} / {Mathf.CeilToInt(bossMaxHealth)} HP   ({Mathf.RoundToInt(hpPct * 100f)}%)";
 
-        // Sombra del texto
-        hpStyle.normal.textColor = new Color(0f, 0f, 0f, bossBarAlpha * 0.95f);
+        // Sombra de contorno oscura en 4 direcciones para máxima legibilidad sobre cualquier fondo
+        hpStyle.normal.textColor = new Color(0f, 0f, 0f, bossBarAlpha * 0.98f);
         GUI.Label(new Rect(x + 1, y + 1, barWidth, barHeight), hpText, hpStyle);
+        GUI.Label(new Rect(x - 1, y - 1, barWidth, barHeight), hpText, hpStyle);
+        GUI.Label(new Rect(x + 1, y - 1, barWidth, barHeight), hpText, hpStyle);
+        GUI.Label(new Rect(x - 1, y + 1, barWidth, barHeight), hpText, hpStyle);
 
-        // Texto frontal blanco limpio
-        hpStyle.normal.textColor = new Color(1f, 1f, 1f, bossBarAlpha * 0.98f);
+        // Texto frontal blanco puro brillante
+        hpStyle.normal.textColor = new Color(1f, 1f, 1f, bossBarAlpha);
         GUI.Label(new Rect(x, y, barWidth, barHeight), hpText, hpStyle);
 
         GUI.color = prevColor;

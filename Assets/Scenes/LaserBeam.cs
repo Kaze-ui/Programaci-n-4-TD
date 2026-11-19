@@ -51,7 +51,6 @@ public class LaserBeam : MonoBehaviour
         if (activePlayers != null && activePlayers.Count > 0)
         {
             Collider2D col = GetComponent<Collider2D>();
-            float forceFieldRadiusSq = PlayerController.ForceFieldRadius * PlayerController.ForceFieldRadius;
 
             for (int i = 0; i < activePlayers.Count; i++)
             {
@@ -61,7 +60,7 @@ public class LaserBeam : MonoBehaviour
                     Vector3 hitboxPos = p.GetHitboxCenter();
                     Vector3 closestPt = col != null ? (Vector3)col.ClosestPoint(hitboxPos) : transform.position;
                     float distSq = (hitboxPos - closestPt).sqrMagnitude;
-                    if (distSq <= forceFieldRadiusSq)
+                    if (distSq <= p.GetForceFieldRadiusSq())
                     {
                         p.NotifyBulletInForceField();
                     }
@@ -88,19 +87,21 @@ public class LaserBeam : MonoBehaviour
         PlayerController player = other.GetComponent<PlayerController>();
         if (player != null)
         {
-            if (player.IsInvulnerable) return;
+            if (player.IsInvulnerable || player.IsDying) return;
             if (!drainsAllShield && Time.time < nextDamageTime) return;
 
             Vector3 impactPos = other.ClosestPoint(transform.position);
             bool isDeflected = player.HasShield;
             EnemyExplosion.SpawnPlayerImpact(impactPos, isDeflected, drainsAllShield ? 1.5f : 1.15f);
 
-            // Si es el Hiper Rayo y el jugador tiene escudo, le saca TODO el escudo restante
+            // Si es el Hiper Rayo y el jugador tiene escudo, le saca TODO el escudo restante.
+            // Si no tiene escudo, le saca 5 puntos de vida.
             float shieldHit = drainsAllShield ? (player.maxShieldCapacity + 1f) : shieldDamage;
             bool absorbedByShield = player.TakeShieldDamage(shieldHit);
             if (!absorbedByShield)
             {
-                player.TakeDamage(damage);
+                int hpDamage = drainsAllShield ? 5 : damage;
+                player.TakeDamage(hpDamage);
             }
             nextDamageTime = Time.time + damageTickInterval;
         }

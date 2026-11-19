@@ -258,8 +258,8 @@ public class UpgradeManager : MonoBehaviour
             new Color(1f, 0.35f, 0.25f, 1f),
             out damageArtImage, out damageTitleText);
 
-        // 3. Configurar tarjeta de SALUD (Columna central: X = 0)
-        SetupCard(healthButton, healthCostText, "VIDA", new Vector2(0f, 25f),
+        // 3. Configurar tarjeta de SALUD Y ESCUDO (Columna central: X = 0)
+        SetupCard(healthButton, healthCostText, "SALUD Y ESCUDO", new Vector2(0f, 25f),
             healthImage != null ? healthImage : s_HealthDefaultIcon,
             new Color(0.25f, 0.95f, 0.45f, 1f),
             out healthArtImage, out healthTitleText);
@@ -674,20 +674,6 @@ public class UpgradeManager : MonoBehaviour
         PlayerController p1 = playerController != null ? playerController : GameManager.Instance?.player;
         if (p1 == null) p1 = FindAnyObjectByType<PlayerController>();
 
-        // El máximo de vidas es 10. Si ya tiene 10 o más vidas, no se permite comprar
-        bool isHealthMaxed = (p1 != null && p1.GetCurrentHealth() >= 10) &&
-                             (GameManager.Instance == null || GameManager.Instance.player2 == null || GameManager.Instance.player2.GetCurrentHealth() >= 10);
-
-        if (isHealthMaxed)
-        {
-            if (SoundController.Instance != null)
-            {
-                SoundController.Instance.PlayUpgradeFailedSfx();
-            }
-            StartCoroutine(FlashPriceText(healthCostText));
-            return;
-        }
-
         int cost = GetCost(healthLevel);
         if (GameManager.Instance == null) return;
 
@@ -702,10 +688,10 @@ public class UpgradeManager : MonoBehaviour
         }
 
         healthLevel++;
-        if (p1 != null) p1.IncreaseMaxHealth(healthIncreasePerLevel);
+        if (p1 != null) p1.UpgradeHealthAndShield(healthIncreasePerLevel, 10f, 1.05f);
         if (GameManager.Instance.player2 != null && GameManager.Instance.player2 != p1)
         {
-            GameManager.Instance.player2.IncreaseMaxHealth(healthIncreasePerLevel);
+            GameManager.Instance.player2.UpgradeHealthAndShield(healthIncreasePerLevel, 10f, 1.05f);
         }
         RefreshUI();
 
@@ -740,23 +726,14 @@ public class UpgradeManager : MonoBehaviour
         if (damageCostText != null) damageCostText.text = $"{GetCost(damageLevel)} PTS";
         if (speedCostText != null) speedCostText.text = $"{GetCost(speedLevel)} PTS";
 
-        bool isHealthMaxed = (playerController != null && playerController.GetCurrentHealth() >= 10) &&
-                             (GameManager.Instance == null || GameManager.Instance.player2 == null || GameManager.Instance.player2.GetCurrentHealth() >= 10);
         if (healthButton != null)
         {
-            healthButton.interactable = !isHealthMaxed;
+            healthButton.interactable = true;
         }
 
         if (healthCostText != null)
         {
-            if (isHealthMaxed)
-            {
-                healthCostText.text = "<color=#94A3B8>MÁXIMO (10/10)</color>";
-            }
-            else
-            {
-                healthCostText.text = $"{GetCost(healthLevel)} PTS";
-            }
+            healthCostText.text = $"{GetCost(healthLevel)} PTS";
         }
 
         // Actualizar sprites si se asignaron externamente

@@ -14,6 +14,8 @@ public class LeaderboardEntry
     public string teamName;
     public float timeSeconds;
     public int score;
+    public int waveReached = 1;
+    public bool reachedBoss = false;
 }
 
 [Serializable]
@@ -45,6 +47,8 @@ public class GameOverManager : MonoBehaviour
     private int currentRunScore;
     private bool isVictoryRun = false;
     private bool isCoopRun = false;
+    private int currentRunWaveReached = 1;
+    private bool reachedBossInRun = false;
     private LeaderboardEntry lastSubmittedEntry;
     private bool hasBuiltModernUI = false;
 
@@ -140,21 +144,28 @@ public class GameOverManager : MonoBehaviour
     public void SetResults(int score, float timeSeconds)
     {
         bool coop = GameManager.Instance != null && GameManager.Instance.IsPlayer2Joined;
-        SetResults(score, timeSeconds, false, coop);
+        SetResults(score, timeSeconds, false, coop, 1, false);
     }
 
     public void SetResults(int score, float timeSeconds, bool isVictory)
     {
         bool coop = GameManager.Instance != null && GameManager.Instance.IsPlayer2Joined;
-        SetResults(score, timeSeconds, isVictory, coop);
+        SetResults(score, timeSeconds, isVictory, coop, 1, isVictory);
     }
 
     public void SetResults(int score, float timeSeconds, bool isVictory, bool isCoop)
+    {
+        SetResults(score, timeSeconds, isVictory, isCoop, 1, isVictory);
+    }
+
+    public void SetResults(int score, float timeSeconds, bool isVictory, bool isCoop, int waveReached, bool reachedBoss)
     {
         isVictoryRun = isVictory;
         isCoopRun = isCoop;
         currentRunScore = score;
         currentRunTime = timeSeconds;
+        currentRunWaveReached = Mathf.Max(1, waveReached);
+        reachedBossInRun = reachedBoss || isVictory;
         lastSubmittedEntry = null;
         LoadLeaderboard();
 
@@ -462,7 +473,7 @@ public class GameOverManager : MonoBehaviour
         CreateBar("HeaderDivider", cardRt, new Vector2(0f, 242f), new Vector2(636f, 2f), new Color(0.22f, 0.74f, 0.97f, 0.55f));
 
         leaderboardLegendText = CreateLabel("ColumnLegend", cardRt, new Vector2(0f, 218f), new Vector2(608f, 24f),
-            "<color=#7DD3FC><pos=4>POS<pos=68>PILOTO<pos=348>TIEMPO<pos=475>PUNTOS</color>",
+            "<color=#7DD3FC><pos=4>POS<pos=50>PILOTO<pos=230>OLEADA<pos=355>TIEMPO<pos=465>PUNTOS</color>",
             s_MonoFont, 15, TextAlignmentOptions.MidlineLeft, 0.5f);
 
         return cardRt;
@@ -941,15 +952,16 @@ public class GameOverManager : MonoBehaviour
         {
             if (isVictoryRun)
             {
-                subtitleText.text = isCoopRun
-                    ? "<color=#FEF9C3><b>LEVIATÁN NODRIZA DESTRUIDO  ·  ESCUADRÓN VICTORIOSO</b></color>"
-                    : "<color=#FEF9C3><b>LEVIATÁN NODRIZA DESTRUIDO  ·  SECTOR ASEGURADO</b></color>";
+                subtitleText.text = "<color=#FBBF24><b>JEFE DERROTADO</b></color>";
+            }
+            else if (reachedBossInRun)
+            {
+                subtitleText.text = "<color=#A855F7><b>DERROTADO CONTRA EL JEFE</b></color>";
             }
             else
             {
-                subtitleText.text = isCoopRun
-                    ? "<color=#FEE2E2><b>AMBAS NAVES DESTRUIDAS  ·  FIN DE LA TRANSMISIÓN</b></color>"
-                    : "<color=#FEE2E2><b>NAVE DESTRUIDA  ·  FIN DE LA TRANSMISIÓN</b></color>";
+                string playerStr = isCoopRun ? "LLEGARON HASTA LA" : "LLEGASTE HASTA LA";
+                subtitleText.text = $"<color=#F87171><b>{playerStr} OLEADA {currentRunWaveReached}</b></color>";
             }
         }
 
@@ -963,8 +975,8 @@ public class GameOverManager : MonoBehaviour
         if (leaderboardLegendText != null)
         {
             leaderboardLegendText.text = isCoopRun
-                ? "<color=#7DD3FC><pos=4>POS<pos=58>EQUIPO  /  PILOTOS<pos=388>TIEMPO<pos=485>PUNTOS</color>"
-                : "<color=#7DD3FC><pos=4>POS<pos=68>PILOTO<pos=348>TIEMPO<pos=475>PUNTOS</color>";
+                ? "<color=#7DD3FC><pos=4>POS<pos=50>EQUIPO  /  PILOTOS<pos=230>OLEADA<pos=355>TIEMPO<pos=465>PUNTOS</color>"
+                : "<color=#7DD3FC><pos=4>POS<pos=50>PILOTO<pos=230>OLEADA<pos=355>TIEMPO<pos=465>PUNTOS</color>";
         }
 
         if (actionCardImg != null)
@@ -1060,7 +1072,9 @@ public class GameOverManager : MonoBehaviour
                 playerName = SanitizeFieldText(nameInputField, "PILOTO 1", 12),
                 player2Name = SanitizeFieldText(coopP2InputField, "PILOTO 2", 12),
                 timeSeconds = currentRunTime,
-                score = currentRunScore
+                score = currentRunScore,
+                waveReached = currentRunWaveReached,
+                reachedBoss = reachedBossInRun
             };
         }
         else
@@ -1069,7 +1083,9 @@ public class GameOverManager : MonoBehaviour
             {
                 playerName = SanitizeFieldText(nameInputField, "PILOTO", 14),
                 timeSeconds = currentRunTime,
-                score = currentRunScore
+                score = currentRunScore,
+                waveReached = currentRunWaveReached,
+                reachedBoss = reachedBossInRun
             };
         }
 
@@ -1139,6 +1155,20 @@ public class GameOverManager : MonoBehaviour
                 string timeColor = isNew ? "#4ADE80" : "#38BDF8";
                 string ptsColor = isNew ? "#86EFAC" : "#FBBF24";
 
+                string waveStr;
+                string waveColor;
+                if (e.reachedBoss)
+                {
+                    waveStr = "JEFE";
+                    waveColor = isNew ? "#D8B4FE" : "#C084FC";
+                }
+                else
+                {
+                    int w = e.waveReached > 0 ? e.waveReached : 1;
+                    waveStr = $"OLEADA {w}";
+                    waveColor = isNew ? "#86EFAC" : "#38BDF8";
+                }
+
                 if (isCoopRun)
                 {
                     string safeTeam = string.IsNullOrWhiteSpace(e.teamName) ? "ESCUADRÓN" : e.teamName.Trim();
@@ -1151,7 +1181,7 @@ public class GameOverManager : MonoBehaviour
                     if (p2.Length > 12) p2 = p2.Substring(0, 12);
 
                     leaderboardRows[i].text =
-                        $"<color={rankColor}><pos=4>{rankStr}</color><pos=58><voffset=9><size=15><color={nameColor}>{safeTeam.ToUpperInvariant()}</color></size></voffset><pos=388><color={timeColor}>{minutes:00}:{seconds:00}</color><pos=485><color={ptsColor}>{e.score:N0} PTS</color>";
+                        $"<color={rankColor}><pos=4>{rankStr}</color><pos=50><voffset=9><size=15><color={nameColor}>{safeTeam.ToUpperInvariant()}</color></size></voffset><pos=230><voffset=9><size=14><color={waveColor}>{waveStr}</color></size></voffset><pos=355><voffset=9><color={timeColor}>{minutes:00}:{seconds:00}</color></voffset><pos=465><voffset=9><color={ptsColor}>{e.score:N0} PTS</color></voffset>";
 
                     if (coopSub != null)
                     {
@@ -1166,7 +1196,7 @@ public class GameOverManager : MonoBehaviour
                     if (safeName.Length > 14) safeName = safeName.Substring(0, 14);
 
                     leaderboardRows[i].text =
-                        $"<color={rankColor}><pos=4>{rankStr}</color><pos=68><color={nameColor}>{safeName.ToUpperInvariant()}</color><pos=348><color={timeColor}>{minutes:00}:{seconds:00}</color><pos=475><color={ptsColor}>{e.score:N0} PTS</color>";
+                        $"<color={rankColor}><pos=4>{rankStr}</color><pos=50><color={nameColor}>{safeName.ToUpperInvariant()}</color><pos=230><color={waveColor}>{waveStr}</color><pos=355><color={timeColor}>{minutes:00}:{seconds:00}</color><pos=465><color={ptsColor}>{e.score:N0} PTS</color>";
                 }
 
                 if (bg != null)
@@ -1182,12 +1212,12 @@ public class GameOverManager : MonoBehaviour
             {
                 if (isCoopRun)
                 {
-                    leaderboardRows[i].text = $"<color=#475569><pos=4>{rankStr}<pos=58>---<pos=388>--:--<pos=485>---</color>";
+                    leaderboardRows[i].text = $"<color=#475569><pos=4>{rankStr}<pos=50>---<pos=230>---<pos=355>--:--<pos=465>---</color>";
                     if (coopSub != null) coopSub.text = string.Empty;
                 }
                 else
                 {
-                    leaderboardRows[i].text = $"<color=#475569><pos=4>{rankStr}<pos=68>---<pos=348>--:--<pos=475>---</color>";
+                    leaderboardRows[i].text = $"<color=#475569><pos=4>{rankStr}<pos=50>---<pos=230>---<pos=355>--:--<pos=465>---</color>";
                 }
                 if (bg != null) bg.sprite = (i % 2 == 0) ? s_RowDarkA : s_RowDarkB;
             }
@@ -1228,5 +1258,31 @@ public class GameOverManager : MonoBehaviour
     public void GoToMainMenu()
     {
         SceneController.Instance.LoadMainMenuScene();
+    }
+
+    [ContextMenu("Borrar Todas las Clasificaciones")]
+    public static void ClearAllLeaderboards()
+    {
+        PlayerPrefs.DeleteKey(SaveKey);
+        PlayerPrefs.DeleteKey(CoopSaveKey);
+        PlayerPrefs.Save();
+        Debug.Log("[Leaderboard] Todas las clasificaciones han sido borradas de PlayerPrefs.");
+    }
+
+    public void ClearCurrentModeLeaderboard()
+    {
+        if (isCoopRun)
+        {
+            PlayerPrefs.DeleteKey(CoopSaveKey);
+            coopLeaderboard = new LeaderboardData();
+        }
+        else
+        {
+            PlayerPrefs.DeleteKey(SaveKey);
+            leaderboard = new LeaderboardData();
+        }
+        PlayerPrefs.Save();
+        RefreshLeaderboardUI();
+        Debug.Log($"[Leaderboard] Clasificación reseteada.");
     }
 }

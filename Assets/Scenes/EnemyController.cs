@@ -74,8 +74,8 @@ public class EnemyController : MonoBehaviour, IDamageable
 
     [Header("Probabilidad de Apuntado")]
     [Range(0f, 1f)] public float tier1AimChance = 0.60f;
-    [Range(0f, 1f)] public float tier2AimChance = 0.40f;
-    [Range(0f, 1f)] public float tier3AimChance = 0.55f;
+    [Range(0f, 1f)] public float tier2AimChance = 0.60f;
+    [Range(0f, 1f)] public float tier3AimChance = 0.60f;
     private bool aimsAtPlayer = false;
     private bool tier2AimsAtPlayer = false;
     private bool tier3AimsAtPlayer = false;
@@ -111,6 +111,138 @@ public class EnemyController : MonoBehaviour, IDamageable
         return 1800f;
     }
 
+    public float GetScreenTopEdge()
+    {
+        if (mainCam == null) mainCam = Camera.main;
+        if (mainCam != null)
+        {
+            return mainCam.transform.position.y + mainCam.orthographicSize;
+        }
+        return 1542f;
+    }
+
+    public static bool HasTierInWave(EnemyTier checkTier)
+    {
+        if (checkTier == EnemyTier.Tier1 && GetActiveTier1RowCount() > 0) return true;
+        if (checkTier == EnemyTier.Tier2 && GetActiveTier2RowCount() > 0) return true;
+        if (checkTier == EnemyTier.Tier3 && activeTier3Count > 0) return true;
+        if (checkTier == EnemyTier.Tier4 && GetActiveTier4RowCount() > 0) return true;
+
+        if (WaveController.Instance != null && WaveController.Instance.waves != null)
+        {
+            int wIdx = WaveController.Instance.CurrentWaveIndex;
+            if (wIdx >= 0 && wIdx < WaveController.Instance.waves.Length)
+            {
+                var wave = WaveController.Instance.waves[wIdx];
+                if (wave != null && wave.enemies != null)
+                {
+                    for (int i = 0; i < wave.enemies.Length; i++)
+                    {
+                        var entry = wave.enemies[i];
+                        if (entry != null && entry.enemyPrefab != null && entry.count > 0)
+                        {
+                            if (entry.enemyPrefab.TryGetComponent<EnemyController>(out var ec))
+                            {
+                                if (ec.tier == checkTier) return true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    public static float GetLowestTier1Y(float topEdge)
+    {
+        float baseT1 = topEdge - 58f;
+        int activeRows = GetActiveTier1RowCount();
+        if (activeRows > 0) return baseT1 - ((activeRows - 1) * 120f);
+        return baseT1;
+    }
+
+    public static float GetLowestTier2Y(float topEdge)
+    {
+        bool hasT1 = HasTierInWave(EnemyTier.Tier1);
+        float baseT2 = hasT1 ? (GetLowestTier1Y(topEdge) - 125f) : (topEdge - 72f);
+        int activeRows = GetActiveTier2RowCount();
+        if (activeRows > 0) return baseT2 - ((activeRows - 1) * 135f);
+        return baseT2;
+    }
+
+    public static float GetLowestTier3Y(float topEdge)
+    {
+        bool hasT2 = HasTierInWave(EnemyTier.Tier2);
+        bool hasT1 = HasTierInWave(EnemyTier.Tier1);
+        float baseT3 = hasT2 ? (GetLowestTier2Y(topEdge) - 145f)
+                     : (hasT1 ? (GetLowestTier1Y(topEdge) - 145f)
+                     : (topEdge - 88f));
+        int lanes = (activeTier3Count > 0) ? Mathf.Min(activeTier3Count, 2) : 1;
+        return baseT3 - ((lanes - 1) * 110f);
+    }
+
+    private void ComputeAndAssignFormationPosition()
+    {
+        float topEdge = GetScreenTopEdge();
+
+        if (tier == EnemyTier.Tier1)
+        {
+            // Tier 1: Máxima prioridad en el borde superior de la pantalla
+            float baseTier1Y = topEdge - 58f;
+            ReserveRowPosition(reservedTier1Rows, baseTier1Y, 120f);
+        }
+        else if (tier == EnemyTier.Tier2)
+        {
+            // Tier 2: Se coloca debajo de Tier 1 si existe; si no, toma la cima
+            bool hasT1 = HasTierInWave(EnemyTier.Tier1);
+            float baseTier2Y = hasT1 ? (GetLowestTier1Y(topEdge) - 125f) : (topEdge - 72f);
+            ReserveRowPosition(reservedTier2Rows, baseTier2Y, 135f);
+        }
+        else if (tier == EnemyTier.Tier3)
+        {
+            // Tier 3: Se coloca debajo de Tier 2 (o de Tier 1 si no hay Tier 2, o arriba si no hay menores)
+            bool hasT2 = HasTierInWave(EnemyTier.Tier2);
+            bool hasT1 = HasTierInWave(EnemyTier.Tier1);
+            float baseTier3Y = hasT2 ? (GetLowestTier2Y(topEdge) - 145f)
+                             : (hasT1 ? (GetLowestTier1Y(topEdge) - 145f)
+                             : (topEdge - 88f));
+
+            float screenLeft = GetScreenMinX();
+            float screenRight = GetScreenMaxX();
+            transform.position = new Vector3(Mathf.Clamp(transform.position.x, screenLeft, screenRight), transform.position.y, transform.position.z);
+
+            int lane = activeTier3Count % 2;
+            activeTier3Count++;
+            myAssignedSettleY = baseTier3Y - (lane * 110f);
+            settleY = myAssignedSettleY;
+
+            if (transform.position.x > (screenLeft + screenRight) * 0.5f) patrolDirection = -1;
+            else patrolDirection = 1;
+        }
+        else if (tier == EnemyTier.Tier4)
+        {
+            bool isBossFight = (GameManager.Instance != null && GameManager.Instance.IsInBossFight);
+            float baseTier4Y;
+            if (isBossFight)
+            {
+                baseTier4Y = 1380f;
+            }
+            else
+            {
+                bool hasT3 = HasTierInWave(EnemyTier.Tier3);
+                bool hasT2 = HasTierInWave(EnemyTier.Tier2);
+                bool hasT1 = HasTierInWave(EnemyTier.Tier1);
+
+                if (hasT3) baseTier4Y = GetLowestTier3Y(topEdge) - 140f;
+                else if (hasT2) baseTier4Y = GetLowestTier2Y(topEdge) - 135f;
+                else if (hasT1) baseTier4Y = GetLowestTier1Y(topEdge) - 130f;
+                else baseTier4Y = topEdge - 72f;
+            }
+
+            ReserveRowPosition(reservedTier4Rows, baseTier4Y, 135f);
+        }
+    }
+
     [Header("Invulnerabilidad de Entrada")]
     public float entryInvulnerabilityDuration = 1.0f;
     private float entryInvulnerabilityTimer = 0f;
@@ -143,14 +275,16 @@ public class EnemyController : MonoBehaviour, IDamageable
         const float bulletRateBoost = 1f / 1.08f;
         // +70% de tiempo de espera para disparar (tardan 70% más en disparar)
         const float enemyFireDelayBoost = 1.70f;
+        // -15% de velocidad de generación de balas enemigas para todos los enemigos
+        const float bulletGenReduction = 1.15f;
 
         if (tier == EnemyTier.Tier1)
         {
             aimsAtPlayer = Random.value < tier1AimChance;
             if (Mathf.Approximately(fireCadence, 1.275f) || Mathf.Approximately(fireCadence, 1.02f) || Mathf.Approximately(fireCadence, 1f) || Mathf.Approximately(fireCadence, 2.17f))
-                fireCadence = (2.875f * bulletRateBoost) * enemyFireDelayBoost; // +70% más tiempo para disparar
+                fireCadence = (2.875f * bulletRateBoost) * enemyFireDelayBoost * bulletGenReduction; // +70% delay y -15% velocidad de generación
             else
-                fireCadence *= (1.3225f * bulletRateBoost) * enemyFireDelayBoost;
+                fireCadence *= (1.3225f * bulletRateBoost) * enemyFireDelayBoost * bulletGenReduction;
 
             if (Mathf.Approximately(tier1BulletSpeed, 240f) || Mathf.Approximately(tier1BulletSpeed, 168f) || Mathf.Approximately(tier1BulletSpeed, 276f) || Mathf.Approximately(tier1BulletSpeed, 207f))
                 tier1BulletSpeed = 207f; // -25% velocidad bala (276 * 0.75)
@@ -161,41 +295,29 @@ public class EnemyController : MonoBehaviour, IDamageable
         {
             tier2AimsAtPlayer = Random.value < tier2AimChance;
             if (Mathf.Approximately(fireCadence, 1f))
-                fireCadence = (1.3225f * bulletRateBoost) * enemyFireDelayBoost; // +70% más tiempo para disparar
+                fireCadence = (1.3225f * bulletRateBoost) * enemyFireDelayBoost * bulletGenReduction; // +70% delay y -15% velocidad de generación
             else
-                fireCadence *= (1.3225f * bulletRateBoost) * enemyFireDelayBoost;
+                fireCadence *= (1.3225f * bulletRateBoost) * enemyFireDelayBoost * bulletGenReduction;
         }
         else if (tier == EnemyTier.Tier3)
         {
             tier3AimsAtPlayer = Random.value < tier3AimChance;
             if (Mathf.Approximately(fireCadence, 1f))
-                fireCadence = (1.3225f * bulletRateBoost) * enemyFireDelayBoost; // +70% más tiempo para disparar
+                fireCadence = (1.3225f * bulletRateBoost) * enemyFireDelayBoost * bulletGenReduction; // +70% delay y -15% velocidad de generación
             else
-                fireCadence *= (1.3225f * bulletRateBoost) * enemyFireDelayBoost;
+                fireCadence *= (1.3225f * bulletRateBoost) * enemyFireDelayBoost * bulletGenReduction;
         }
         else if (tier == EnemyTier.Tier4)
         {
             laserTelegraphDuration = 2.5f * (2f / 3f); // -1/3 de duración de la marca antes de disparar (1.667s)
-            laserCooldown *= (1.3225f * bulletRateBoost) * enemyFireDelayBoost; // +70% más tiempo entre disparos de láser
-            bool isBossFight = (GameManager.Instance != null && GameManager.Instance.IsInBossFight);
-            float baseTier4Y = isBossFight ? 1380f : 1150f;
-
-            if (!isBossFight)
-            {
-                int activeT1 = GetActiveRowCount(reservedTier1Rows);
-                int activeT2 = GetActiveRowCount(reservedTier2Rows);
-                float lowestT1 = (activeT1 > 0) ? (1450f - (activeT1 * rowVerticalSpacing)) : 1600f;
-                float lowestT2 = (activeT2 > 0) ? (1300f - (activeT2 * rowVerticalSpacing)) : 1600f;
-                float lowestAbove = Mathf.Min(lowestT1, lowestT2);
-                if (lowestAbove < 1600f) baseTier4Y = Mathf.Min(baseTier4Y, lowestAbove - 20f);
-            }
-
-            ReserveRowPosition(reservedTier4Rows, baseTier4Y);
-            transform.position = new Vector3(myReservedX, transform.position.y, transform.position.z);
+            laserCooldown *= (1.3225f * bulletRateBoost) * enemyFireDelayBoost * bulletGenReduction; // -15% velocidad de generación de láser
         }
 
+        ComputeAndAssignFormationPosition();
+
         float spawnY = Mathf.Max(settleY + entryHeightAboveSettle, GetScreenTopY(150f));
-        transform.position = new Vector3(transform.position.x, spawnY, transform.position.z);
+        float spawnX = hasReservedPosition ? myReservedX : transform.position.x;
+        transform.position = new Vector3(spawnX, spawnY, transform.position.z);
 
         var pc = FindAnyObjectByType<PlayerController>();
         if (pc != null) playerTransform = pc.transform;
@@ -276,14 +398,20 @@ public class EnemyController : MonoBehaviour, IDamageable
         float t = Time.time + animPhaseOffset;
 
         float hoverFreq = tier switch { EnemyTier.Tier1 => 2.3f, EnemyTier.Tier2 => 2.0f, EnemyTier.Tier3 => 1.55f, _ => 1.75f };
-        float hoverAmp = tier switch { EnemyTier.Tier1 => 8f, EnemyTier.Tier2 => 6.5f, EnemyTier.Tier3 => 5.5f, _ => 6f };
+        float hoverAmp = tier switch { EnemyTier.Tier1 => 1.5f, EnemyTier.Tier2 => 3.0f, EnemyTier.Tier3 => 4.0f, _ => 4.0f };
 
         float recoilKickY = 0f;
         if (recoilTimer > 0f)
         {
             recoilTimer = Mathf.Max(0f, recoilTimer - dt);
             float kickCurve = Mathf.Sin((recoilTimer / 0.14f) * Mathf.PI);
-            recoilKickY = 16f * recoilStrength * kickCurve;
+            float kickScale = tier switch
+            {
+                EnemyTier.Tier1 => 2.0f,
+                EnemyTier.Tier2 => 3.5f,
+                _ => 14f
+            };
+            recoilKickY = kickScale * recoilStrength * kickCurve;
         }
 
         if (hasSettledPos && !isRepositioning)
@@ -403,32 +531,7 @@ public class EnemyController : MonoBehaviour, IDamageable
 
     IEnumerator EnterAndBehave()
     {
-        if (tier == EnemyTier.Tier1)
-        {
-            ReserveRowPosition(reservedTier1Rows, settleY);
-        }
-        else if (tier == EnemyTier.Tier2)
-        {
-            int activeTier1Rows = GetActiveRowCount(reservedTier1Rows);
-            float baseTier2Y = (activeTier1Rows > 0) ? (1450f - (activeTier1Rows * rowVerticalSpacing)) : settleY;
-            ReserveRowPosition(reservedTier2Rows, baseTier2Y);
-        }
-        else if (tier == EnemyTier.Tier3)
-        {
-            float screenLeft = GetScreenMinX();
-            float screenRight = GetScreenMaxX();
-            transform.position = new Vector3(Mathf.Clamp(transform.position.x, screenLeft, screenRight), transform.position.y, transform.position.z);
-
-            int lane = activeTier3Count % 3;
-            activeTier3Count++;
-            myAssignedSettleY = settleY - (lane * 80f);
-
-            if (transform.position.x > (screenLeft + screenRight) * 0.5f) patrolDirection = -1;
-            else patrolDirection = 1;
-        }
-
-        float targetSettleY = (tier == EnemyTier.Tier1 || tier == EnemyTier.Tier2 || tier == EnemyTier.Tier4 || tier == EnemyTier.Tier3)
-            ? myAssignedSettleY : settleY;
+        float targetSettleY = myAssignedSettleY;
 
         while (transform.position.y > targetSettleY)
         {
@@ -446,7 +549,7 @@ public class EnemyController : MonoBehaviour, IDamageable
         }
         else if (tier == EnemyTier.Tier2)
         {
-            StartCoroutine(RepositionToTarget());
+            StartCoroutine(PatrolHorizontalTier2());
             StartCoroutine(FireTier2());
         }
         else if (tier == EnemyTier.Tier3)
@@ -456,7 +559,43 @@ public class EnemyController : MonoBehaviour, IDamageable
         }
         else if (tier == EnemyTier.Tier4)
         {
+            StartCoroutine(RepositionToTarget());
             StartCoroutine(FireTier4());
+        }
+    }
+
+    IEnumerator PatrolHorizontalTier2()
+    {
+        // 50% y 50% de probabilidad para iniciar a la izquierda (-1) o derecha (+1)
+        int dir = (Random.value < 0.5f) ? -1 : 1;
+        float changeTimer = Random.Range(4f, 9f);
+
+        while (true)
+        {
+            float dt = Time.deltaTime;
+            transform.position += Vector3.right * dir * moveSpeed * dt;
+            float leftBound = GetScreenMinX();
+            float rightBound = GetScreenMaxX();
+
+            if (transform.position.x >= rightBound)
+            {
+                transform.position = new Vector3(rightBound, transform.position.y, transform.position.z);
+                dir = -1;
+            }
+            else if (transform.position.x <= leftBound)
+            {
+                transform.position = new Vector3(leftBound, transform.position.y, transform.position.z);
+                dir = 1;
+            }
+
+            changeTimer -= dt;
+            if (changeTimer <= 0f)
+            {
+                dir = -dir;
+                changeTimer = Random.Range(4f, 9f);
+            }
+
+            yield return null;
         }
     }
 
@@ -515,24 +654,10 @@ public class EnemyController : MonoBehaviour, IDamageable
     {
         if (bulletPrefab == null) return;
 
-        Vector3 baseDir;
-        if (Random.value < 0.60f)
-        {
-            // 60% de chance: hacia el jugador
-            baseDir = GetAimDirection(true);
-        }
-        else
-        {
-            // 40% de chance: hacia abajo de la pantalla, en una posición X dentro de los límites
-            float margin = 50f;
-            float minX = GetScreenMinX() + margin;
-            float maxX = GetScreenMaxX() - margin;
-            float targetX = (minX < maxX) ? Random.Range(minX, maxX) : ((minX + maxX) * 0.5f);
-            float targetY = (mainCam != null) ? (mainCam.transform.position.y - mainCam.orthographicSize) : (transform.position.y - 1200f);
-            baseDir = (new Vector3(targetX, targetY, 0f) - transform.position).normalized;
-        }
+        // 60% hacia el jugador, 40% simplemente hacia abajo
+        Vector3 baseDir = (Random.value < tier1AimChance) ? GetAimDirection(true) : Vector3.down;
 
-        const float spreadAngle = 40f; // Dispersión aumentada de los proyectiles laterales (antes 22°)
+        const float spreadAngle = 40f; // Dispersión aumentada de los proyectiles laterales
         Vector3 dirCenter = baseDir;
         Vector3 dirLeft = Quaternion.Euler(0f, 0f, -spreadAngle) * baseDir;
         Vector3 dirRight = Quaternion.Euler(0f, 0f, spreadAngle) * baseDir;
@@ -557,10 +682,10 @@ public class EnemyController : MonoBehaviour, IDamageable
     {
         if (bulletPrefab == null) return;
 
-        // Dirección central apuntando hacia el jugador
-        Vector3 aimDir = GetAimDirection(true);
+        // 60% hacia el jugador, 40% simplemente hacia abajo
+        Vector3 aimDir = (Random.value < tier2AimChance) ? GetAimDirection(true) : Vector3.down;
 
-        // Media pulsación: semicircunferencia (180 grados) de proyectiles hacia el jugador
+        // Media pulsación: semicircunferencia (180 grados) de proyectiles
         // 7 proyectiles distribuidos uniformemente desde -90° hasta +90° respecto a aimDir
         const int bulletCount = 7;
         const float totalArc = 180f;
@@ -591,15 +716,16 @@ public class EnemyController : MonoBehaviour, IDamageable
             }
             chargeVisualProgress = 0f;
 
-            // Dispara ÚNICAMENTE la bala grande recta hacia abajo de la pantalla
-            Vector3 spawnOffset = Vector3.down * bigBulletSpawnOffset;
-            GameObject bigBullet = FireBullet(bigBulletPrefab, tier3BigBulletSpeed, Vector3.down, spawnOffset);
+            // 60% hacia el jugador, 40% simplemente hacia abajo
+            Vector3 shootDir = (Random.value < tier3AimChance) ? GetAimDirection(true) : Vector3.down;
+            Vector3 spawnOffset = shootDir * bigBulletSpawnOffset;
+            GameObject bigBullet = FireBullet(bigBulletPrefab, tier3BigBulletSpeed, shootDir, spawnOffset);
 
             if (bigBullet != null && bigBullet.TryGetComponent<EnemyBullet>(out var eb))
             {
-                // Cantidad aleatoria de pasos (distancia en eje Y) antes de estallar en racimo
-                float randomTravelDistY = Random.Range(240f, 540f);
-                eb.SetupClusterExplosion(bulletPrefab, randomTravelDistY, 262.5f); // -25% de velocidad fragmentos (350 * 0.75)
+                // Distancia antes de estallar en racimo de 20 fragmentos
+                float randomTravelDist = Random.Range(240f, 540f);
+                eb.SetupClusterExplosion(bulletPrefab, randomTravelDist, 262.5f); // -25% de velocidad fragmentos (350 * 0.75)
             }
 
             TriggerRecoil(1.25f);
@@ -752,8 +878,9 @@ public class EnemyController : MonoBehaviour, IDamageable
         return obj;
     }
 
-    private void ReserveRowPosition(Dictionary<int, List<float>> rowDict, float baseY)
+    private void ReserveRowPosition(Dictionary<int, List<float>> rowDict, float baseY, float spacing = -1f)
     {
+        float actualSpacing = (spacing > 0f) ? spacing : rowVerticalSpacing;
         int targetRow = 0;
         while (true)
         {
@@ -763,7 +890,7 @@ public class EnemyController : MonoBehaviour, IDamageable
         }
 
         myRowIndex = targetRow;
-        myAssignedSettleY = baseY - (myRowIndex * rowVerticalSpacing);
+        myAssignedSettleY = baseY - (myRowIndex * actualSpacing);
         settleY = myAssignedSettleY;
 
         if (!hasReservedPosition)

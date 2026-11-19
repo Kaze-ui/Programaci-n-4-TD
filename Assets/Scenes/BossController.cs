@@ -15,7 +15,7 @@ public class BossController : MonoBehaviour, IDamageable
 
     [Header("Movimiento")]
     public float moveSpeed = 367.5f; // Triple de velocidad (122.5f * 3)
-    public float targetY = 1100f;
+    public float targetY = 1240f; // Elevado para dar más margen inferior y reducir camping superior
     public float entrySpeed = 150f;
     private bool hasEntered = false;
     private int moveDirection = 1;
@@ -40,7 +40,7 @@ public class BossController : MonoBehaviour, IDamageable
     public float laserWarningDuration = 2f; // -1/3 de duración (3s * 2/3 = 2s)
     public float laserActiveDuration = 3f;
     public float laserWidth = 150f;
-    public float laserLength = 3500f;
+    public float laserLength = 5250f; // 50% más largo (3500 * 1.5 = 5250) para cubrir completamente la pantalla en diagonal
 
     [Header("Fase 2 (A partir de 250 HP)")]
     public float phase2HealthThreshold = 250f;
@@ -75,6 +75,7 @@ public class BossController : MonoBehaviour, IDamageable
     private Coroutine superLaserCoroutine;
     private Coroutine phase2PulseCoroutine;
     private Coroutine tier4MinionsCoroutine;
+    private Coroutine phase1MinionsCoroutine;
     private Coroutine phase2TransitionCoroutine;
 
     private Vector3 baseScale;
@@ -105,24 +106,30 @@ public class BossController : MonoBehaviour, IDamageable
 
     void Start()
     {
-        if (maxHealth <= 250) maxHealth = 500;
+        bool isCoop = GameManager.Instance != null && GameManager.Instance.IsPlayer2Joined;
+        maxHealth = isCoop ? 1000 : 500;
         if (Mathf.Approximately(moveSpeed, 175f) || Mathf.Approximately(moveSpeed, 122.5f)) moveSpeed = 367.5f;
-
-        if (GameManager.Instance != null && GameManager.Instance.IsPlayer2Joined)
-            maxHealth = Mathf.Max(1, Mathf.RoundToInt(maxHealth * 1.50f));
 
         // +8% de generación de balas para todos los enemigos (multiplica los tiempos de recarga por 1 / 1.08)
         // y -50% de reducción de tiempo de generación para el jefe (doble de producción de balas)
+        // y -15% de reducción de velocidad de generación de balas para todos los enemigos incluyendo el jefe
         const float bulletRateBoost = 1f / 1.08f;
-        smallBulletCadence *= (1.3225f * bulletRateBoost) * 0.5f;
-        bigBulletCadence = 5f; // Disparo cada 5 segundos exactos
+        const float bulletGenReduction = 1.15f;
+        smallBulletCadence *= (1.3225f * bulletRateBoost) * 0.5f * bulletGenReduction;
+        bigBulletCadence = 5f * bulletGenReduction; // Disparo de balas grandes cada 5.75 segundos (-15% velocidad de generación)
         laserWarningDuration = 2f; // -1/3 de duración de la marca previa (3s * 2/3 = 2s)
+        laserLength = 5250f; // 50% más largo (3500 * 1.5 = 5250) para cubrir completamente la pantalla en disparos diagonales
         if (Mathf.Approximately(smallBulletSpeed, 400f) || Mathf.Approximately(smallBulletSpeed, 280f) || Mathf.Approximately(smallBulletSpeed, 460f)) smallBulletSpeed = 345f;
         else smallBulletSpeed *= 0.75f;
 
         currentHealth = maxHealth;
         mainCam = Camera.main;
         playerController = FindAnyObjectByType<PlayerController>();
+
+        if (Mathf.Approximately(targetY, 1100f) || targetY < 1200f)
+        {
+            targetY = 1240f;
+        }
 
         if (mainCam != null)
         {
@@ -189,6 +196,7 @@ public class BossController : MonoBehaviour, IDamageable
         bigBulletCoroutine = StartCoroutine(BigBulletDiagonalRoutine());
         superLaserCoroutine = StartCoroutine(SuperLaserRoutine());
         if (isPhase2) phase2PulseCoroutine = StartCoroutine(Phase2PulseRoutine());
+        if (!isPhase2 && phase1MinionsCoroutine == null) phase1MinionsCoroutine = StartCoroutine(SpawnPhase1MinionsRoutine());
     }
 
     private void StopNormalAttackRoutines()
@@ -197,6 +205,7 @@ public class BossController : MonoBehaviour, IDamageable
         if (bigBulletCoroutine != null) { StopCoroutine(bigBulletCoroutine); bigBulletCoroutine = null; }
         if (superLaserCoroutine != null) { StopCoroutine(superLaserCoroutine); superLaserCoroutine = null; }
         if (phase2PulseCoroutine != null) { StopCoroutine(phase2PulseCoroutine); phase2PulseCoroutine = null; }
+        if (phase1MinionsCoroutine != null) { StopCoroutine(phase1MinionsCoroutine); phase1MinionsCoroutine = null; }
     }
 
     void LateUpdate()
@@ -250,14 +259,55 @@ public class BossController : MonoBehaviour, IDamageable
         }
     }
 
-    // Ataque 1: Disparo quíntuple de balas normales:
-    // - Costados exteriores: diagonales más abiertas (-36° izq, +36° der)
-    // - Costados interiores: diagonales menos abiertas (-18° izq, +18° der)
-    // - Centro (5to disparo): directo hacia abajo (0°)
-    // Fase 1 tarda un 35% más; Fase 2 tarda un 10% más respecto a la cadencia base
+    private Vector3 GetAimDirectionToPlayer()
+    {
+        var players = PlayerController.ActivePlayers;
+        PlayerController target = null;
+        float minDistSq = float.MaxValue;
+        Vector3 bossCenter = transform.position;
+
+        if (players != null)
+        {
+            for (int i = 0; i < players.Count; i++)
+            {
+                var p = players[i];
+                if (p != null && p.gameObject.activeInHierarchy && p.GetCurrentHealth() > 0)
+                {
+                    float dSq = (p.transform.position - bossCenter).sqrMagnitude;
+                    if (dSq < minDistSq)
+                    {
+                        minDistSq = dSq;
+                        target = p;
+                    }
+                }
+            }
+        }
+
+        if (target == null && playerController != null && playerController.GetCurrentHealth() > 0)
+        {
+            target = playerController;
+        }
+
+        if (target != null)
+        {
+            Vector3 diff = target.GetHitboxCenter() - bossCenter;
+            if (diff.sqrMagnitude > 0.001f)
+            {
+                return diff.normalized;
+            }
+        }
+
+        return Vector3.down;
+    }
+
+    // Ataque 1: Disparo quíntuple de balas normales en abanico apuntando hacia el jugador:
+    // - Si el jugador intenta colocarse arriba o a los costados, el jefe dispara su abanico directamente hacia él
+    // - Costados exteriores: diagonales más abiertas (-36° izq, +36° der respecto al jugador)
+    // - Costados interiores: diagonales menos abiertas (-18° izq, +18° der respecto al jugador)
+    // - Centro (3er disparo): directo hacia el jugador (0°)
     IEnumerator SmallBulletBottomRoutine()
     {
-        float[] cannonOffsetsX = { -155f, -75f, 0f, 75f, 155f };
+        float[] cannonOffsets = { -155f, -75f, 0f, 75f, 155f };
         float[] cannonAnglesDeg = { -36f, -18f, 0f, 18f, 36f };
 
         while (!isDead)
@@ -268,10 +318,13 @@ public class BossController : MonoBehaviour, IDamageable
             yield return new WaitForSeconds((smallBulletCadence * cadenceMultiplier) + extraPhase2Delay);
             if (isDead || isTransitioningPhase2 || bulletPrefab == null) continue;
 
-            for (int i = 0; i < cannonOffsetsX.Length; i++)
+            Vector3 aimDir = GetAimDirectionToPlayer();
+            Vector3 perpDir = new Vector3(-aimDir.y, aimDir.x, 0f).normalized;
+
+            for (int i = 0; i < cannonOffsets.Length; i++)
             {
-                Vector3 spawnPos = transform.position + new Vector3(cannonOffsetsX[i], -150f, 0f);
-                Vector3 dir = Quaternion.Euler(0f, 0f, cannonAnglesDeg[i]) * Vector3.down;
+                Vector3 spawnPos = transform.position + (aimDir * 130f) + (perpDir * cannonOffsets[i]);
+                Vector3 dir = Quaternion.Euler(0f, 0f, cannonAnglesDeg[i]) * aimDir;
                 FireBullet(bulletPrefab, smallBulletSpeed, dir, spawnPos);
             }
             TriggerRecoil(0.55f);
@@ -317,7 +370,7 @@ public class BossController : MonoBehaviour, IDamageable
         yield return new WaitForSeconds(1.5f);
         while (!isDead && isPhase2)
         {
-            yield return new WaitForSeconds(4.0f);
+            yield return new WaitForSeconds(4.0f * 1.15f); // -15% velocidad de generación en pulsación radial (4.6s)
             if (isDead || !isPhase2 || isTransitioningPhase2 || bulletPrefab == null) continue;
 
             const int pulseCount = 20;
@@ -443,9 +496,9 @@ public class BossController : MonoBehaviour, IDamageable
             DestroySafe(ref activeRealLaser);
             if (isDead || isTransitioningPhase2) continue;
 
-            // En Fase 2 el láser vuelve un poco más seguido (4.2s vs ~6.0s en Fase 1)
-            float baseCooldown = Mathf.Max(5.75f, (laserWarningDuration + laserActiveDuration + 5f) * 1.15f - laserWarningDuration - laserActiveDuration);
-            float cycleCooldown = isPhase2 ? 4.2f : baseCooldown;
+            // En Fase 2 el láser vuelve un poco más seguido (4.2s vs ~6.0s en Fase 1) con -15% de velocidad de generación
+            float baseCooldown = Mathf.Max(5.75f, (laserWarningDuration + laserActiveDuration + 5f) * 1.15f - laserWarningDuration - laserActiveDuration) * 1.15f;
+            float cycleCooldown = (isPhase2 ? 4.2f : baseCooldown) * 1.15f;
             float cdElapsed = 0f;
             while (!isDead && !isTransitioningPhase2 && cdElapsed < cycleCooldown)
             {
@@ -455,8 +508,37 @@ public class BossController : MonoBehaviour, IDamageable
         }
     }
 
-    // Ataque 4: Incursión periódica de esbirros Tier 4 (solo se activa en Fase 2 tras el Hiper Rayo)
-    IEnumerator SpawnTier4MinionsRoutine(float initialDelay = 1.2f)
+    // Invocación en Fase 1: enemigos aleatorios del juego (Tier 1, 2 o 3, excepto Tier 4) cada 3 a 9 segundos
+    IEnumerator SpawnPhase1MinionsRoutine()
+    {
+        yield return new WaitForSeconds(Random.Range(3f, 9f));
+        while (!isDead && !isPhase2)
+        {
+            if (!isTransitioningPhase2)
+            {
+                GameObject chosenPrefab = null;
+                int r = Random.Range(0, 3);
+                if (r == 0) chosenPrefab = WaveController.Instance?.tier1Prefab ?? Resources.Load<GameObject>("Prefabs/Enemy_Tier1");
+                else if (r == 1) chosenPrefab = WaveController.Instance?.tier2Prefab ?? Resources.Load<GameObject>("Prefabs/Enemy_Tier2");
+                else chosenPrefab = WaveController.Instance?.tier3Prefab ?? Resources.Load<GameObject>("Prefabs/Enemy_Tier3");
+
+                if (chosenPrefab != null)
+                {
+                    float spawnY = (mainCam != null) ? mainCam.transform.position.y + mainCam.orthographicSize + 150f : 1800f;
+                    float horz = (mainCam != null) ? (mainCam.orthographicSize * mainCam.aspect * 0.70f) : 600f;
+                    float camX = (mainCam != null) ? mainCam.transform.position.x : 957f;
+                    float spawnX = Random.Range(camX - horz, camX + horz);
+
+                    GameObject minion = Instantiate(chosenPrefab, new Vector3(spawnX, spawnY, 0f), Quaternion.identity);
+                    spawnedMinions.Add(minion);
+                }
+            }
+            yield return new WaitForSeconds(Random.Range(3f, 9f));
+        }
+    }
+
+    // Ataque 4: Incursión periódica de esbirros Tier 4 en Fase 2 (20% más rápido: cadencia 5.28s en vez de 6.6s)
+    IEnumerator SpawnTier4MinionsRoutine(float initialDelay = 0.96f)
     {
         if (initialDelay > 0f) yield return new WaitForSeconds(initialDelay);
         while (!isDead)
@@ -469,19 +551,96 @@ public class BossController : MonoBehaviour, IDamageable
                     float spawnY = (mainCam != null) ? mainCam.transform.position.y + mainCam.orthographicSize + 200f : 1800f;
                     float spawnX = (mainCam != null) ? mainCam.transform.position.x : 957f;
                     spawnedMinions.Add(Instantiate(tier4Prefab, new Vector3(spawnX, spawnY, 0f), Quaternion.identity));
-                    yield return new WaitForSeconds(0.4f);
+                    yield return new WaitForSeconds(0.32f);
                 }
             }
-            yield return new WaitForSeconds(6.6f);
+            yield return new WaitForSeconds(5.28f);
         }
     }
 
     private float GetPhase2Threshold()
     {
-        // En 1P (500 HP) es exactamente 250 HP; si 2P escala la vida total, escala proporcionalmente al 50%
-        if (GameManager.Instance != null && GameManager.Instance.IsPlayer2Joined && maxHealth > 500)
-            return maxHealth * 0.5f;
-        return phase2HealthThreshold;
+        return maxHealth * 0.5f;
+    }
+
+    private void SpawnShieldShatterVfx(Vector3 center)
+    {
+        int count = 16;
+        for (int i = 0; i < count; i++)
+        {
+            float angle = i * (360f / count);
+            Vector3 dir = Quaternion.Euler(0f, 0f, angle) * Vector3.up;
+            if (bulletPrefab != null)
+            {
+                GameObject shard = Instantiate(bulletPrefab, center + dir * 60f, Quaternion.identity);
+                shard.transform.localScale = Vector3.one * 0.7f;
+                if (shard.TryGetComponent<EnemyBullet>(out var eb))
+                {
+                    eb.damage = 0;
+                }
+                if (shard.TryGetComponent<Rigidbody2D>(out var rb))
+                {
+                    rb.linearVelocity = dir * 450f;
+                }
+                Destroy(shard, 0.55f);
+            }
+        }
+    }
+
+    private IEnumerator ShieldBreakAnimationRoutine()
+    {
+        Vector3 origPos = transform.position;
+        float duration = 1.4f;
+        float elapsed = 0f;
+
+        SoundController.Instance?.PlayBossEntrySfx();
+
+        while (elapsed < duration)
+        {
+            elapsed += Time.deltaTime;
+            float t = Mathf.Clamp01(elapsed / duration);
+
+            float shakeIntensity = Mathf.Lerp(4f, 24f, t);
+            float offsetX = Random.Range(-shakeIntensity, shakeIntensity);
+            float offsetY = Random.Range(-shakeIntensity, shakeIntensity);
+            transform.position = origPos + new Vector3(offsetX, offsetY, 0f);
+
+            float pulse = Mathf.Sin(elapsed * 35f);
+            float expandScale = Mathf.Lerp(1.0f, 1.45f, t) + (pulse * 0.08f);
+
+            if (vfxPhase2ShieldSr != null)
+            {
+                vfxPhase2ShieldSr.gameObject.SetActive(true);
+                vfxPhase2ShieldSr.transform.localScale = Vector3.one * (basePhase2ShieldScale * expandScale);
+                Color crackCol = Color.Lerp(new Color(0.2f, 0.8f, 1f, 0.85f), new Color(1f, 0.3f, 0.1f, 1f), t);
+                vfxPhase2ShieldSr.color = (pulse > 0f) ? crackCol : Color.white;
+            }
+
+            if (vfxPhase2ShieldRingTr != null && vfxPhase2ShieldRingSr != null)
+            {
+                vfxPhase2ShieldRingSr.gameObject.SetActive(true);
+                vfxPhase2ShieldRingTr.Rotate(0f, 0f, 400f * Time.deltaTime);
+                vfxPhase2ShieldRingTr.localScale = Vector3.one * (basePhase2ShieldRingScale * expandScale);
+                Color ringCrackCol = Color.Lerp(new Color(0.4f, 0.9f, 1f, 0.9f), Color.yellow, t);
+                vfxPhase2ShieldRingSr.color = (pulse > 0f) ? ringCrackCol : Color.white;
+            }
+
+            yield return null;
+        }
+
+        transform.position = origPos;
+
+        if (SoundController.HasInstance)
+        {
+            SoundController.Instance.PlayUpgradePurchasedSfx();
+        }
+
+        SpawnShieldShatterVfx(origPos);
+
+        if (vfxPhase2ShieldSr != null) vfxPhase2ShieldSr.gameObject.SetActive(false);
+        if (vfxPhase2ShieldRingSr != null) vfxPhase2ShieldRingSr.gameObject.SetActive(false);
+
+        yield return new WaitForSeconds(0.25f);
     }
 
     private void EnterPhase2()
@@ -505,15 +664,10 @@ public class BossController : MonoBehaviour, IDamageable
         isSweepingLaser = false;
         currentLaserAngle = 0f;
 
-        // Activar escudo visual del jefe; la barra pasa a gris mientras es invencible y luego a azul en Fase 2
-        if (vfxPhase2ShieldSr != null) vfxPhase2ShieldSr.gameObject.SetActive(true);
-        if (vfxPhase2ShieldRingSr != null) vfxPhase2ShieldRingSr.gameObject.SetActive(true);
-        shieldHitFlashTimer = 0.35f;
-
         GameManager.Instance?.hudManager?.SetBossPhase2(true);
         GameManager.Instance?.hudManager?.SetBossInvulnerable(true);
         GameManager.Instance?.hudManager?.UpdateBossHealth(currentHealth);
-        GameManager.Instance?.hudManager?.ShowPhase2EnemyAlert("NUEVOS ENEMIGOS DETECTADOS", 3.0f);
+        GameManager.Instance?.hudManager?.ShowPhase2EnemyAlert("¡ESCUDO DEL JEFE DESTRUIDO!", 3.0f);
 
         if (phase2TransitionCoroutine != null) StopCoroutine(phase2TransitionCoroutine);
         phase2TransitionCoroutine = StartCoroutine(Phase2HyperBeamSequence());
@@ -528,6 +682,9 @@ public class BossController : MonoBehaviour, IDamageable
     /// </summary>
     private IEnumerator Phase2HyperBeamSequence()
     {
+        // 0. Animación donde se rompe el escudo del jefe (mientras hace la animación es invencible) antes de salir de la pantalla
+        yield return StartCoroutine(ShieldBreakAnimationRoutine());
+
         if (mainCam == null) mainCam = Camera.main;
 
         float camX = mainCam != null ? mainCam.transform.position.x : transform.position.x;
@@ -557,7 +714,7 @@ public class BossController : MonoBehaviour, IDamageable
         Vector3 beamCenter = new Vector3(camX, camY, 0f);
 
         // Láser rojo de aviso durante 3 segundos exactos
-        Sprite solidBeamSprite = GetHyperBeamSolidSprite();
+        Sprite origLaserSprite = Resources.Load<Sprite>("Sprites/LaserBeam");
         activeWarningLaser = telegraphPrefab != null
             ? Instantiate(telegraphPrefab, beamCenter, Quaternion.identity)
             : CreateRuntimeLaser("BossHyperWarning_Auto", beamCenter, new Color(1f, 0.10f, 0.10f, 0.38f), 4);
@@ -565,8 +722,8 @@ public class BossController : MonoBehaviour, IDamageable
 
         // Líneas rojas nítidas delimitando el borde izquierdo y derecho de la zona letal
         SpriteRenderer warnSr = activeWarningLaser.GetComponent<SpriteRenderer>();
-        if (warnSr != null) warnSr.sprite = solidBeamSprite; // Sprite sólido original del Hiper Rayo
-        Sprite unitSprite = solidBeamSprite;
+        if (warnSr != null && origLaserSprite != null) warnSr.sprite = origLaserSprite; // Sprite original del LaserBeam
+        Sprite unitSprite = origLaserSprite != null ? origLaserSprite : GetHyperBeamSolidSprite();
         Material unitMat = warnSr != null ? warnSr.sharedMaterial : null;
         hyperWarningLeftEdge = CreateHyperStripVisual("BossHyperWarnLeftEdge",
             new Vector3(camX - hyperWidth * 0.5f, camY, 0f),
@@ -609,18 +766,25 @@ public class BossController : MonoBehaviour, IDamageable
         DestroySafe(ref hyperWarningRightEdge);
         if (isDead) yield break;
 
-        // 3. Disparo del Hiper Rayo masivo por el centro de la pantalla (vuelve a su sprite sólido original)
+        // 3. Disparo del Hiper Rayo masivo usando el sprite original del rayo (sin pantallas blancas)
         activeRealLaser = laserPrefab != null
             ? Instantiate(laserPrefab, beamCenter, Quaternion.identity)
-            : CreateRuntimeLaser("BossHyperBeam_Auto", beamCenter, Color.white, 5, true);
+            : CreateRuntimeLaser("BossHyperBeam_Auto", beamCenter, Color.white, 7, true);
         activeRealLaser.transform.localScale = new Vector3(hyperWidth, hyperHeight, 1f);
 
         SpriteRenderer realSr = activeRealLaser.GetComponent<SpriteRenderer>();
         if (realSr != null)
         {
-            realSr.sprite = solidBeamSprite; // Vuelve al sprite anterior sólido del Hiper Rayo
-            realSr.color = new Color(0.42f, 0.85f, 1f, 0.95f);
-            realSr.sortingOrder = 5;
+            if (origLaserSprite != null) realSr.sprite = origLaserSprite; // Sprite original del LaserBeam
+            realSr.color = Color.white;
+            realSr.sortingOrder = 7;
+        }
+
+        // Asegurar que la hitbox del BoxCollider2D coincida exactamente al 100% con el ancho visual del sprite
+        if (activeRealLaser.TryGetComponent<BoxCollider2D>(out var beamCol))
+        {
+            beamCol.size = new Vector2(1f, 1f);
+            beamCol.offset = Vector2.zero;
         }
         if (activeRealLaser.TryGetComponent<LaserBeam>(out var lb))
         {
@@ -630,17 +794,6 @@ public class BossController : MonoBehaviour, IDamageable
             lb.damageTickInterval = 0.18f;
             lb.autoDestroy = true;
         }
-
-        Sprite beamSprite = solidBeamSprite;
-        Material beamMat = realSr != null ? realSr.sharedMaterial : unitMat;
-        hyperBeamGlowVisual = CreateHyperStripVisual("BossHyperBeamOuterGlow",
-            beamCenter,
-            new Vector3(hyperWidth * 1.07f, hyperHeight, 1f),
-            new Color(0.14f, 0.55f, 1f, 0.45f), 4, beamSprite, beamMat);
-        hyperBeamCoreVisual = CreateHyperStripVisual("BossHyperBeamInnerCore",
-            beamCenter,
-            new Vector3(hyperWidth * 0.68f, hyperHeight, 1f),
-            new Color(0.96f, 0.99f, 1f, 0.98f), 6, beamSprite, beamMat);
 
         SoundController.Instance?.PlayBossHyperBeamSfx();
         isFiringLaser = true;
@@ -652,10 +805,6 @@ public class BossController : MonoBehaviour, IDamageable
             float jitter = 1f + Mathf.Sin(fireElapsed * 62f) * 0.022f;
             if (activeRealLaser != null)
                 activeRealLaser.transform.localScale = new Vector3(hyperWidth * jitter, hyperHeight, 1f);
-            if (hyperBeamCoreVisual != null)
-                hyperBeamCoreVisual.transform.localScale = new Vector3(hyperWidth * (0.68f + Mathf.Sin(fireElapsed * 84f) * 0.04f), hyperHeight, 1f);
-            if (hyperBeamGlowVisual != null)
-                hyperBeamGlowVisual.transform.localScale = new Vector3(hyperWidth * (1.07f + Mathf.Cos(fireElapsed * 48f) * 0.03f), hyperHeight, 1f);
             yield return null;
         }
 
@@ -678,10 +827,10 @@ public class BossController : MonoBehaviour, IDamageable
         phase2TransitionCoroutine = null;
         GameManager.Instance?.hudManager?.SetBossInvulnerable(false);
 
-        // Reanudar ataques normales y AHORA comenzar a invocar esbirros Tier 4
+        // Reanudar ataques normales y AHORA comenzar a invocar esbirros Tier 4 (20% más rápido)
         StartNormalAttackRoutines();
         if (tier4MinionsCoroutine != null) StopCoroutine(tier4MinionsCoroutine);
-        tier4MinionsCoroutine = StartCoroutine(SpawnTier4MinionsRoutine(1.2f));
+        tier4MinionsCoroutine = StartCoroutine(SpawnTier4MinionsRoutine(0.96f));
     }
 
     private static Sprite s_HyperBeamSolidSprite;
@@ -769,8 +918,15 @@ public class BossController : MonoBehaviour, IDamageable
     {
         if (Time.timeScale == 0f || isDead || amount <= 0f || IsInvulnerable) return;
 
-        // En Fase 2 el jefe recibe un 30% menos de daño (absorbido visualmente por su escudo azul)
-        float effectiveDamage = isPhase2 ? amount * (1f - phase2DamageReduction) : amount;
+        // Fase 1: Escudo activo con reducción de daño (30% en 1P, 40% en 2P)
+        // Fase 2: Escudo roto, 0% de reducción de daño
+        float reduction = 0f;
+        if (!isPhase2)
+        {
+            bool isCoop = GameManager.Instance != null && GameManager.Instance.IsPlayer2Joined;
+            reduction = isCoop ? 0.40f : 0.30f;
+        }
+        float effectiveDamage = amount * (1f - reduction);
 
         // Protección anti one-shot: ningún disparo individual puede bajar más de la mitad de la vida máxima del jefe
         float maxSingleShotDamage = maxHealth * 0.5f;
@@ -778,7 +934,7 @@ public class BossController : MonoBehaviour, IDamageable
 
         currentHealth -= effectiveDamage;
 
-        // Verificar transición a Fase 2 al llegar a 250 HP (o 50% en 2P)
+        // Verificar transición a Fase 2 al llegar a 250 HP (o 500 HP en 2P)
         if (!isPhase2 && currentHealth <= GetPhase2Threshold())
         {
             // Impedir que un disparo masivo en Fase 1 baje por debajo del umbral antes de activar la Fase 2
@@ -787,7 +943,7 @@ public class BossController : MonoBehaviour, IDamageable
             return;
         }
 
-        if (isPhase2)
+        if (!isPhase2)
         {
             shieldHitFlashTimer = 0.16f;
         }
@@ -803,8 +959,8 @@ public class BossController : MonoBehaviour, IDamageable
 
     public void DoubleHealth()
     {
-        maxHealth = Mathf.Max(1, Mathf.RoundToInt(maxHealth * 1.50f));
-        currentHealth *= 1.50f;
+        maxHealth = 1000;
+        currentHealth = Mathf.Min(maxHealth, currentHealth * 1.50f);
         GameManager.Instance?.hudManager?.ActivateBossHealthBar("Leviatán nodriza", maxHealth);
         GameManager.Instance?.hudManager?.UpdateBossHealth(currentHealth);
         if (isPhase2) GameManager.Instance?.hudManager?.SetBossPhase2(true);
@@ -1013,12 +1169,12 @@ public class BossController : MonoBehaviour, IDamageable
             vfxInnerVortexTr = vfxInnerVortexSr.transform;
         }
 
-        // Escudo visual blindado de Fase 2 (campo energético azul + anillo hexagonal giratorio)
+        // Escudo visual blindado de Fase 1 (campo energético azul + anillo hexagonal giratorio)
         Sprite shieldAuraSprite = ChargeVisualUtils.GetForceFieldAuraSprite();
         if (shieldAuraSprite != null)
         {
             vfxPhase2ShieldSr = CreateBossVfxChild("Vfx_BossPhase2Shield", Vector3.zero, shieldAuraSprite, parentSr, 4, 1.38f, bossSpan, new Color(0.18f, 0.72f, 1f, 0.62f), out basePhase2ShieldScale);
-            vfxPhase2ShieldSr.gameObject.SetActive(false);
+            vfxPhase2ShieldSr.gameObject.SetActive(true);
         }
 
         Sprite shieldRingSprite = GetBossShieldRingSprite();
@@ -1026,7 +1182,7 @@ public class BossController : MonoBehaviour, IDamageable
         {
             vfxPhase2ShieldRingSr = CreateBossVfxChild("Vfx_BossPhase2ShieldRing", Vector3.zero, shieldRingSprite, parentSr, 5, 1.48f, bossSpan, new Color(0.45f, 0.90f, 1f, 0.78f), out basePhase2ShieldRingScale);
             vfxPhase2ShieldRingTr = vfxPhase2ShieldRingSr.transform;
-            vfxPhase2ShieldRingSr.gameObject.SetActive(false);
+            vfxPhase2ShieldRingSr.gameObject.SetActive(true);
         }
     }
 
@@ -1166,8 +1322,8 @@ public class BossController : MonoBehaviour, IDamageable
             vfxInnerVortexSr.color = Color.Lerp(baseCol, beamCol, isFiringLaser ? 1f : laserChargeProgress * 0.75f);
         }
 
-        // Escudo visual de Fase 2 (indica reducción de daño sin texto)
-        if (isPhase2)
+        // Escudo visual activo en Fase 1 (se destruye y apaga en Fase 2)
+        if (!isPhase2 && !isTransitioningPhase2)
         {
             float hitBoost = Mathf.Clamp01(shieldHitFlashTimer / 0.16f);
             if (vfxPhase2ShieldSr != null)
@@ -1190,6 +1346,13 @@ public class BossController : MonoBehaviour, IDamageable
                 Color ringHit = new Color(0.95f, 0.99f, 1f, 0.98f);
                 vfxPhase2ShieldRingSr.color = Color.Lerp(ringBase, ringHit, hitBoost);
             }
+        }
+        else if (isPhase2)
+        {
+            if (vfxPhase2ShieldSr != null && vfxPhase2ShieldSr.gameObject.activeSelf)
+                vfxPhase2ShieldSr.gameObject.SetActive(false);
+            if (vfxPhase2ShieldRingTr != null && vfxPhase2ShieldRingSr != null && vfxPhase2ShieldRingSr.gameObject.activeSelf)
+                vfxPhase2ShieldRingSr.gameObject.SetActive(false);
         }
     }
 

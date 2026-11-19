@@ -61,6 +61,7 @@ public class SoundController : MonoBehaviour
     public AudioClip bossLaserSfx;
     public AudioClip tier4LaserSfx;
     public AudioClip playerHitSfx;
+    public AudioClip playerShieldBreakSfx;
     public AudioClip playerDeathSfx;
     public AudioClip upgradeBuySfx;
     public AudioClip upgradeOpenSfx;
@@ -87,8 +88,10 @@ public class SoundController : MonoBehaviour
     private AudioClip generatedBossLaserClip;
     private AudioClip generatedBossHyperBeamClip;
     private AudioClip generatedBossHyperWarningClip;
+    private AudioClip generatedPlayerShieldBreakClip;
     private readonly float[] lastTierEntryTime = { -10f, -10f, -10f, -10f };
     private float lastPlayerDeathTime = -10f;
+    private float lastShieldBreakTime = -10f;
 
     void Awake()
     {
@@ -181,7 +184,11 @@ public class SoundController : MonoBehaviour
             Transform existingChannel = transform.Find("MusicChannel");
             GameObject musicObj = existingChannel != null ? existingChannel.gameObject : new GameObject("MusicChannel");
             musicObj.transform.SetParent(transform, false);
-            musicSource = musicObj.GetComponent<AudioSource>() ?? musicObj.AddComponent<AudioSource>();
+            musicSource = musicObj.GetComponent<AudioSource>();
+            if (musicSource == null)
+            {
+                musicSource = musicObj.AddComponent<AudioSource>();
+            }
             musicSource.playOnAwake = false;
             musicSource.loop = true;
             musicSource.spatialBlend = 0f;
@@ -189,7 +196,11 @@ public class SoundController : MonoBehaviour
 
         if (musicLowPass == null && musicSource != null)
         {
-            musicLowPass = musicSource.GetComponent<AudioLowPassFilter>() ?? musicSource.gameObject.AddComponent<AudioLowPassFilter>();
+            musicLowPass = musicSource.GetComponent<AudioLowPassFilter>();
+            if (musicLowPass == null)
+            {
+                musicLowPass = musicSource.gameObject.AddComponent<AudioLowPassFilter>();
+            }
             musicLowPass.cutoffFrequency = ClearCutoffHz;
             musicLowPass.lowpassResonanceQ = 1.3f;
             musicLowPass.enabled = false;
@@ -2553,6 +2564,131 @@ public class SoundController : MonoBehaviour
         }
 
         AudioClip clip = AudioClip.Create(clipName, totalSamples, 1, sampleRate, false);
+        clip.SetData(samples, 0);
+        return clip;
+    }
+
+    /// <summary>
+    /// Sonido distintivo cuando le bajan todo el escudo a un jugador:
+    /// estallido cristalino-energético de sobrecarga, despresurización de plasma en barrido descendente
+    /// y pulso de advertencia de escudo colapsado.
+    /// </summary>
+    public void PlayPlayerShieldBreakSfx()
+    {
+        if (Time.unscaledTime - lastShieldBreakTime < 0.18f) return;
+        lastShieldBreakTime = Time.unscaledTime;
+
+        if (sfxSource == null) InitAudioSources();
+
+        if (playerShieldBreakSfx == null)
+        {
+            playerShieldBreakSfx = Resources.Load<AudioClip>("Audio/player_shield_break");
+        }
+
+        if (playerShieldBreakSfx != null)
+        {
+            sfxSource.pitch = UnityEngine.Random.Range(0.96f, 1.04f);
+            sfxSource.PlayOneShot(playerShieldBreakSfx, 1.15f * sfxVolume);
+            return;
+        }
+
+        if (generatedPlayerShieldBreakClip == null) generatedPlayerShieldBreakClip = CreateCleanPlayerShieldBreakClip();
+        if (generatedPlayerShieldBreakClip != null)
+        {
+            sfxSource.pitch = UnityEngine.Random.Range(0.96f, 1.04f);
+            sfxSource.PlayOneShot(generatedPlayerShieldBreakClip, 1.12f * sfxVolume);
+        }
+    }
+
+    private static AudioClip CreateCleanPlayerShieldBreakClip()
+    {
+        const int sampleRate = 44100;
+        const float duration = 0.72f;
+        int totalSamples = Mathf.RoundToInt(duration * sampleRate);
+        float[] samples = new float[totalSamples];
+
+        const float twoPi = Mathf.PI * 2f;
+        float crystalPhase1 = 0f;
+        float crystalPhase2 = 0f;
+        float crystalPhase3 = 0f;
+        float dropPhase = 0f;
+        float subPhase = 0f;
+        float warnPhase = 0f;
+        float lpNoise = 0f;
+        float peak = 0.001f;
+
+        for (int i = 0; i < totalSamples; i++)
+        {
+            float t = i / (float)sampleRate;
+            float u = Mathf.Clamp01(t / duration);
+
+            // 1. Envoltura de impacto inicial ultra rápida (transitorio explosivo de 3ms)
+            float envIn = Mathf.Clamp01(t / 0.003f);
+            float envOut = Mathf.Clamp01((duration - t) / 0.14f);
+            float mainEnv = envIn * envOut;
+
+            // 2. Ruptura de cristal de plasma (tonos metálicos/cristalinos agudos en decadencia exponencial)
+            float glassDecay = Mathf.Exp(-t * 18f);
+            float freqGlass1 = 2800f * Mathf.Exp(-t * 6f);
+            float freqGlass2 = 1940f * Mathf.Exp(-t * 8f);
+            float freqGlass3 = 3600f * Mathf.Exp(-t * 22f);
+
+            crystalPhase1 += twoPi * freqGlass1 / sampleRate;
+            crystalPhase2 += twoPi * freqGlass2 / sampleRate;
+            crystalPhase3 += twoPi * freqGlass3 / sampleRate;
+            if (crystalPhase1 > twoPi) crystalPhase1 -= twoPi;
+            if (crystalPhase2 > twoPi) crystalPhase2 -= twoPi;
+            if (crystalPhase3 > twoPi) crystalPhase3 -= twoPi;
+
+            float crystal = (Mathf.Sin(crystalPhase1) * 0.35f +
+                             Mathf.Sin(crystalPhase2) * 0.28f +
+                             Mathf.Sin(crystalPhase3) * 0.20f) * glassDecay;
+
+            // 3. Barrido descendente de despresurización de plasma (de 920 Hz a 110 Hz)
+            float dropFreq = 110f + 810f * Mathf.Exp(-t * 9.5f);
+            dropPhase += twoPi * dropFreq / sampleRate;
+            if (dropPhase > twoPi) dropPhase -= twoPi;
+            float dropDecay = Mathf.Exp(-t * 6f);
+            float drop = Mathf.Sin(dropPhase) * 0.45f * dropDecay;
+
+            // 4. Sub-grave de descarga / explosión del campo electromagnético (160 Hz -> 42 Hz)
+            float subFreq = 42f + 118f * Mathf.Exp(-t * 14f);
+            subPhase += twoPi * subFreq / sampleRate;
+            if (subPhase > twoPi) subPhase -= twoPi;
+            float subDecay = Mathf.Exp(-t * 8f);
+            float sub = Mathf.Sin(subPhase) * 0.55f * subDecay;
+
+            // 5. Advertencia electrónica de escudo agotado (chirrido bifásico descendente Sol5 -> Do5)
+            float warnEnv = 0f;
+            if (t > 0.08f && t < 0.55f)
+            {
+                float tw = t - 0.08f;
+                float wDecay = Mathf.Exp(-tw * 7f);
+                float warnFreq = (tw < 0.16f) ? 784f : 523f;
+                warnPhase += twoPi * warnFreq / sampleRate;
+                if (warnPhase > twoPi) warnPhase -= twoPi;
+                warnEnv = Mathf.Sin(warnPhase) * 0.25f * wDecay;
+            }
+
+            // 6. Chispas de estática de plasma filtradas suavemente
+            float noise = DeterministicNoise(i * 11 + 37);
+            lpNoise = Mathf.Lerp(lpNoise, noise, Mathf.Clamp01(0.18f * Mathf.Exp(-t * 7f)));
+            float fizzle = lpNoise * (0.28f * glassDecay);
+
+            float totalVal = (crystal + drop + sub + warnEnv + fizzle) * mainEnv;
+            samples[i] = totalVal;
+            float absVal = Mathf.Abs(totalVal);
+            if (absVal > peak) peak = absVal;
+        }
+
+        // Normalización limpia para volumen potente pero cero distorsión
+        float norm = 0.85f / peak;
+        for (int i = 0; i < totalSamples; i++)
+        {
+            samples[i] *= norm;
+        }
+
+        AudioClip clip = AudioClip.Create("player_shield_break_sfx", totalSamples, 1, sampleRate, false);
         clip.SetData(samples, 0);
         return clip;
     }

@@ -27,16 +27,16 @@ public class EnemyBullet : MonoBehaviour
     private GameObject clusterFragmentPrefab;
     private float clusterExplodeDistance = 350f;
     private float clusterFragmentSpeed = 262.5f; // -25% de velocidad (350 * 0.75)
-    private float startClusterY = 0f;
+    private Vector3 startClusterPos;
     private bool hasExplodedCluster = false;
 
-    public void SetupClusterExplosion(GameObject fragmentPrefab, float explodeDistanceY, float fragmentSpeed = 262.5f)
+    public void SetupClusterExplosion(GameObject fragmentPrefab, float explodeDistance, float fragmentSpeed = 262.5f)
     {
         shouldExplodeCluster = true;
         clusterFragmentPrefab = fragmentPrefab;
-        clusterExplodeDistance = explodeDistanceY;
+        clusterExplodeDistance = explodeDistance;
         clusterFragmentSpeed = fragmentSpeed;
-        startClusterY = transform.position.y;
+        startClusterPos = transform.position;
     }
 
     [Header("Ralentización por Proximidad")]
@@ -77,7 +77,10 @@ public class EnemyBullet : MonoBehaviour
             RenderTexture.active = rt;
             Texture2D copy = new Texture2D(w, h, TextureFormat.RGBA32, false);
             copy.ReadPixels(new Rect(0, 0, w, h), 0, 0);
-            RenderTexture.active = prev;
+            if (RenderTexture.active == rt)
+            {
+                RenderTexture.active = (prev != rt) ? prev : null;
+            }
             RenderTexture.ReleaseTemporary(rt);
 
             Color[] srcPixels = copy.GetPixels();
@@ -214,10 +217,10 @@ public class EnemyBullet : MonoBehaviour
     {
         if (Time.timeScale == 0f) return;
 
-        // Comprobación de detonación en racimo por distancia en eje Y (Tier 3)
+        // Comprobación de detonación en racimo por distancia recorrida (Tier 3)
         if (shouldExplodeCluster && !hasExplodedCluster)
         {
-            if (Mathf.Abs(startClusterY - transform.position.y) >= clusterExplodeDistance)
+            if (Vector2.Distance(startClusterPos, transform.position) >= clusterExplodeDistance)
             {
                 ExplodeIntoCluster();
                 return;
@@ -246,7 +249,6 @@ public class EnemyBullet : MonoBehaviour
         if (activePlayers != null && activePlayers.Count > 0)
         {
             Vector3 myPos = transform.position;
-            float forceFieldRadiusSq = PlayerController.ForceFieldRadius * PlayerController.ForceFieldRadius;
 
             for (int i = 0; i < activePlayers.Count; i++)
             {
@@ -255,7 +257,7 @@ public class EnemyBullet : MonoBehaviour
                 {
                     Vector3 hitboxPos = p.GetHitboxCenter();
                     float distSq = (myPos - hitboxPos).sqrMagnitude;
-                    if (distSq <= forceFieldRadiusSq)
+                    if (distSq <= p.GetForceFieldRadiusSq())
                     {
                         inForceFieldOfAnyPlayer = true;
                         p.NotifyBulletInForceField();
@@ -290,9 +292,9 @@ public class EnemyBullet : MonoBehaviour
 
             if (player != null)
             {
-                // El campo de fuerza tiene 100 de capacidad: bala normal saca 10, bala grande saca 25
+                // El escudo inicial tiene 10 de vida: bala normal saca 5, bala grande saca 10
                 bool isBig = isBigBullet || bulletExtent >= 150f;
-                float shieldCost = isBig ? 25f : 10f;
+                float shieldCost = isBig ? 10f : 5f;
                 bool absorbedByShield = player.TakeShieldDamage(shieldCost);
                 if (!absorbedByShield)
                 {

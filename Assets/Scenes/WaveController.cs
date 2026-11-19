@@ -34,6 +34,7 @@ public class WaveController : MonoBehaviour
     public GameObject upgradePanel;
 
     private int currentWaveIndex = 0;
+    public int CurrentWaveIndex => currentWaveIndex;
     private int enemiesAliveInWave = 0;
     private float waveTimer;
     private bool waveActive = false;
@@ -55,8 +56,8 @@ public class WaveController : MonoBehaviour
     {
         Instance = this;
 
-        // Duración fijada para todas las oleadas: 110 segundos (70s base + 40s adicionales)
-        const float WAVE_DURATION_SECONDS = 110f;
+        // Duración fijada para todas las oleadas: 95 segundos (acortada 15 segundos respecto a 110s)
+        const float WAVE_DURATION_SECONDS = 95f;
         if (waves != null)
         {
             for (int i = 0; i < waves.Length; i++)

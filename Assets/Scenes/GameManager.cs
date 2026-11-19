@@ -20,8 +20,12 @@ public class GameManager : MonoBehaviour
     [Header("Jefe")]
     public GameObject bossPrefab;
     public Transform bossSpawnPoint;
+    [Header("Tiempo Límite del Jefe")]
+    public float bossTimeLimit = 240f; // 4 minutos exactos para derrotar al jefe
+    private float bossTimer = 240f;
 
     private int currentScore = 0;
+    public int CurrentScore => currentScore;
     private float elapsedTime = 0f;
     private bool isAwaitingScreamRevive = false;
     private int screamReviveCount = 0;
@@ -60,6 +64,20 @@ public class GameManager : MonoBehaviour
         if (currentState == GameState.Won || currentState == GameState.Lost || isAwaitingScreamRevive) return;
 
         elapsedTime += Time.deltaTime;
+
+        if (currentState == GameState.BossFight)
+        {
+            bossTimer = Mathf.Max(0f, bossTimer - Time.deltaTime);
+            if (hudManager != null)
+            {
+                hudManager.UpdateTimer(bossTimer);
+            }
+            if (bossTimer <= 0f)
+            {
+                LoseGame();
+                return;
+            }
+        }
 
         CheckPlayer2Join();
     }
@@ -115,8 +133,8 @@ public class GameManager : MonoBehaviour
         player2.playerIndex = 2;
         player2.bulletDamage = player.bulletDamage;
         player2.moveSpeed = player.moveSpeed;
-        player2.maxHealth = 10;
-        player2.SetHealth(10);
+        player2.maxHealth = 5;
+        player2.SetHealth(5);
 
         player2.ApplyShipVisuals();
 
@@ -160,13 +178,15 @@ public class GameManager : MonoBehaviour
 
     public void ReviveDeadPlayersForNextWave()
     {
-        bool anyRevived = false;
+        bool player1Revived = false;
+        bool player2Revived = false;
 
         // 1. Revisar si Jugador 1 cayó
         if (player != null && (player.GetCurrentHealth() <= 0 || !player.gameObject.activeInHierarchy))
         {
             player.gameObject.SetActive(true);
             player.SetHealth(5);
+            player.BreakShieldInstantly(); // Asegura que al revivir NO tenga escudo
             if (player2 != null && player2.gameObject.activeInHierarchy)
             {
                 player.transform.position = player2.transform.position + new Vector3(-80f, 0f, 0f);
@@ -175,7 +195,7 @@ public class GameManager : MonoBehaviour
             {
                 hudManager.UpdateHealth(5, player.maxHealth, player2 != null);
             }
-            anyRevived = true;
+            player1Revived = true;
         }
 
         // 2. Revisar si Jugador 2 cayó
@@ -183,6 +203,7 @@ public class GameManager : MonoBehaviour
         {
             player2.gameObject.SetActive(true);
             player2.SetHealth(5);
+            player2.BreakShieldInstantly(); // Asegura que al revivir NO tenga escudo
             if (player != null && player.gameObject.activeInHierarchy)
             {
                 player2.transform.position = player.transform.position + new Vector3(80f, 0f, 0f);
@@ -191,12 +212,12 @@ public class GameManager : MonoBehaviour
             {
                 hudManager.UpdateP2Health(5, player2.maxHealth);
             }
-            anyRevived = true;
+            player2Revived = true;
         }
 
-        // Restaurar escudo al 100% para la siguiente oleada
-        if (player != null) player.RestoreShield();
-        if (player2 != null) player2.RestoreShield();
+        // Restaurar escudo al 100% para la siguiente oleada ÚNICAMENTE a los sobrevivientes que no murieron
+        if (!player1Revived && player != null) player.RestoreShield();
+        if (!player2Revived && player2 != null) player2.RestoreShield();
 
     }
 
@@ -358,11 +379,13 @@ public class GameManager : MonoBehaviour
             SoundController.Instance.PlayBossMusic(true);
         }
 
+        bossTimer = bossTimeLimit;
+
         if (hudManager != null)
         {
             hudManager.SetWaveText("¡LEVIATÁN NODRIZA!");
             hudManager.ShowWaveBanner("¡ALERTA MÁXIMA!", "¡NAVE NODRIZA DETECTADA!");
-            hudManager.UpdateTimer(0f);
+            hudManager.UpdateTimer(bossTimer);
         }
 
         if (bossPrefab != null)
@@ -418,8 +441,8 @@ public class GameManager : MonoBehaviour
     {
         if (currentState == GameState.Won || currentState == GameState.Lost || isAwaitingScreamRevive) return;
 
-        bool p1Alive = player != null && player.gameObject.activeInHierarchy && player.GetCurrentHealth() > 0;
-        bool p2Alive = player2 != null && player2.gameObject.activeInHierarchy && player2.GetCurrentHealth() > 0;
+        bool p1Alive = player != null && player.gameObject.activeInHierarchy && player.GetCurrentHealth() > 0 && !player.IsDying;
+        bool p2Alive = player2 != null && player2.gameObject.activeInHierarchy && player2.GetCurrentHealth() > 0 && !player2.IsDying;
 
         if (!p1Alive && !p2Alive)
         {
@@ -436,8 +459,8 @@ public class GameManager : MonoBehaviour
 
     private long GetReviveHealthForAttempt(int attemptNumber, long currentMaxHealth)
     {
-        long penalty = System.Math.Max(0L, (long)(attemptNumber - 1) * 3L);
-        long baseHealth = currentMaxHealth > 10L ? currentMaxHealth : 10L;
+        long penalty = System.Math.Max(0L, (long)(attemptNumber - 1) * 2L);
+        long baseHealth = currentMaxHealth > 5L ? currentMaxHealth : 5L;
         return System.Math.Max(1L, baseHealth - penalty);
     }
 
@@ -459,7 +482,7 @@ public class GameManager : MonoBehaviour
 
         bool isCoop = IsPlayer2Joined;
         int nextAttempt = screamReviveCount + 1;
-        long previewHp = GetReviveHealthForAttempt(nextAttempt, player != null ? player.maxHealth : 10L);
+        long previewHp = GetReviveHealthForAttempt(nextAttempt, player != null ? player.maxHealth : 5L);
         ScreamReviveController.Show(isCoop, nextAttempt, MaxScreamRevivesPerRun, previewHp, OnScreamReviveSucceeded, OnScreamReviveFailed);
     }
 
@@ -468,7 +491,7 @@ public class GameManager : MonoBehaviour
         isAwaitingScreamRevive = false;
         screamReviveCount++;
 
-        long p1Hp = GetReviveHealthForAttempt(screamReviveCount, player != null ? player.maxHealth : 10L);
+        long p1Hp = GetReviveHealthForAttempt(screamReviveCount, player != null ? player.maxHealth : 5L);
         if (player != null)
         {
             player.ReviveWithHealthAndInvulnerability(p1Hp, 5.0f);
@@ -544,7 +567,9 @@ public class GameManager : MonoBehaviour
 
         if (gameOverManager != null)
         {
-            gameOverManager.SetResults(currentScore, elapsedTime, isVictory, IsPlayer2Joined);
+            int wave = waveController != null ? (waveController.CurrentWaveIndex + 1) : 1;
+            bool reachedBoss = (currentState == GameState.BossFight || isVictory);
+            gameOverManager.SetResults(currentScore, elapsedTime, isVictory, IsPlayer2Joined, wave, reachedBoss);
         }
     }
 }

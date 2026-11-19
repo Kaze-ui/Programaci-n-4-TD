@@ -1851,7 +1851,10 @@ public class TutorialPanelController : MonoBehaviour
             RenderTexture.active = rt;
             Texture2D copy = new Texture2D(w, h, TextureFormat.RGBA32, false);
             copy.ReadPixels(new Rect(0, 0, w, h), 0, 0);
-            RenderTexture.active = prev;
+            if (RenderTexture.active == rt)
+            {
+                RenderTexture.active = (prev != rt) ? prev : null;
+            }
             RenderTexture.ReleaseTemporary(rt);
 
             Color[] pixels = copy.GetPixels();
@@ -2353,8 +2356,8 @@ public class TutorialUIGreyEnemy : MonoBehaviour
     private float prevHoverY = 0f;
     private float prevRecoilY = 0f;
 
-    // 30% menos cadencia de disparo que el Tier 1 normal (2.875 / 0.70 ≈ 4.11s entre disparos)
-    private const float FireCadence = 4.11f;
+    // 30% menos cadencia de disparo que el Tier 1 normal y -15% de velocidad de generación (4.11s * 1.15 = 4.73s)
+    private const float FireCadence = 4.7265f;
     private float nextFireTime = 0f;
 
     public void Setup(TutorialPanelController ctrl, Image img, Image flashImg)

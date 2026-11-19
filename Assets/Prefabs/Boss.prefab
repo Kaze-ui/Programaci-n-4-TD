@@ -181,7 +181,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::BossController
   maxHealth: 500
   moveSpeed: 367.5
-  targetY: 1100
+  targetY: 1240
   entrySpeed: 150
   bulletPrefab: {fileID: 5141576225277623232, guid: 2917fe9a5ce2d0540a4217361be42aff, type: 3}
   bigBulletPrefab: {fileID: 2857514954453701257, guid: 4f5a05ee506027744a8d63a9b06f8098, type: 3}
@@ -198,7 +198,7 @@ MonoBehaviour:
   laserWarningDuration: 2
   laserActiveDuration: 3
   laserWidth: 150
-  laserLength: 3500
+  laserLength: 5250
   contactDamage: 2
   contactCooldown: 1
   scoreValue: 10

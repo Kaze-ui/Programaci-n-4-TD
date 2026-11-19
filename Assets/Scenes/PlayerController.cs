@@ -1,3 +1,5 @@
+using System.Collections;
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
@@ -53,11 +55,14 @@ public class PlayerController : MonoBehaviour
     public float bulletDamage = 0.5f;
 
     [Header("Vida")]
-    public long maxHealth = 10;
-    private long currentHealth = 10;
+    public long maxHealth = 5;
+    private long currentHealth = 5;
+    private bool isDying = false;
+    public bool IsDying => isDying;
 
     [Header("Invulnerabilidad")]
-    public float invulnerabilityDuration = 2.0f; // Disminuido a 2 segundos tras recibir daño sin escudo
+    public float invulnerabilityDuration = 2.0f; // 2 segundos tras recibir daño directo a la nave sin escudo
+    public float shieldInvulnerabilityDuration = 1.0f; // 1 segundo tras protegerse de balas con el escudo (-1s respecto al daño directo)
     private float invulnerabilityTimer = 0f;
     private SpriteRenderer shipSpriteRenderer;
 
@@ -65,14 +70,21 @@ public class PlayerController : MonoBehaviour
     public static readonly System.Collections.Generic.List<PlayerController> ActivePlayers = new System.Collections.Generic.List<PlayerController>();
 
     [Header("Campo de Fuerza y Ralentización")]
-    public const float ForceFieldRadius = 125f; // Área del campo de fuerza donde las balas enemigas se ralentizan al 25% de velocidad (75% de ralentización)
-    public const float BulletSlowRadius = ForceFieldRadius; // Alias para compatibilidad
-    public const float ShieldCloseRadius = ForceFieldRadius;
-    public const float ShieldProximityRadius = ForceFieldRadius;
-    public float maxShieldCapacity = 100f; // 100 unidades de capacidad de escudo
-    public float currentShieldCapacity = 100f;
-    private float displayedShieldCapacity = 100f;
+    public const float BaseForceFieldRadius = 125f;
+    public float forceFieldRadius = 125f;
+    public const float ForceFieldRadius = BaseForceFieldRadius; // Alias para compatibilidad
+    public const float BulletSlowRadius = BaseForceFieldRadius;
+    public const float ShieldCloseRadius = BaseForceFieldRadius;
+    public const float ShieldProximityRadius = BaseForceFieldRadius;
+    public float maxShieldCapacity = 10f; // Inicialmente 10 puntos de vida de escudo (oleada 1)
+    public float currentShieldCapacity = 10f;
+    private float displayedShieldCapacity = 10f;
     public bool HasShield => currentShieldCapacity > 0.001f;
+
+    [Header("Mejoras de Escudo y Campo de Fuerza")]
+    public int shieldUpgradeLevel = 0;
+    public float GetForceFieldRadius() => forceFieldRadius;
+    public float GetForceFieldRadiusSq() => forceFieldRadius * forceFieldRadius;
 
     private float lastBulletVeryCloseTime = -10f;
     private float lastThreatInSlowRadiusTime = -10f;
@@ -95,6 +107,7 @@ public class PlayerController : MonoBehaviour
     private Image shieldBarBgImage;
     private Image shieldBarFillImage;
     private TextMeshProUGUI shieldBarWarningText;
+    private TextMeshProUGUI shieldBarValueText; // Muestra puntos de salud dentro de la barra azul (ej: 20/20)
     private CanvasGroup shieldBarCanvasGroup;
     private Transform shieldBarCanvasTransform;
     private Vector3 baseShieldBarCanvasScale = Vector3.one;
@@ -134,7 +147,8 @@ public class PlayerController : MonoBehaviour
         if (Mathf.Approximately(fireRate, 0.3f) || Mathf.Approximately(fireRate, 0.25f)) fireRate = 0.217f;
         if (Mathf.Approximately(slowSpeedReduction, 0.60f) || Mathf.Approximately(slowSpeedReduction, 0.45f)) slowSpeedReduction = 0.55f;
         if (Mathf.Approximately(chargeTimeRequired, 2.5f)) chargeTimeRequired = 2.2f;
-        if (currentHealth <= 0) currentHealth = maxHealth;
+        if (maxHealth == 10L) maxHealth = 5L;
+        if (currentHealth <= 0 || currentHealth == 10L || currentHealth > maxHealth) currentHealth = maxHealth;
         mainCam = Camera.main;
 
         // Hitbox de los jugadores mucho más exacta y precisa:
@@ -161,6 +175,14 @@ public class PlayerController : MonoBehaviour
         EnsureShipOutlineVisuals();
         EnsureHitboxDotVisuals();
         EnsureShieldBarVisuals();
+
+        if (shieldUpgradeLevel == 0 && (Mathf.Approximately(maxShieldCapacity, 100f) || maxShieldCapacity <= 0f))
+        {
+            maxShieldCapacity = 10f;
+            currentShieldCapacity = 10f;
+            displayedShieldCapacity = 10f;
+        }
+
         RestoreShield();
 
         // Respaldo seguro usando scale.y por si Player2 se clona mientras Player1 está inclinado
@@ -354,6 +376,16 @@ public class PlayerController : MonoBehaviour
         NotifyThreatInSlowRadius();
     }
 
+    public void UpdateForceFieldScale()
+    {
+        if (forceFieldObj != null)
+        {
+            float scaleMultiplier = Mathf.Pow(1.05f, shieldUpgradeLevel);
+            float s = 1.95f * scaleMultiplier;
+            forceFieldObj.transform.localScale = new Vector3(s, s, 1f);
+        }
+    }
+
     private void EnsureForceFieldVisuals()
     {
         if (forceFieldObj != null && forceFieldSr != null) return;
@@ -369,8 +401,7 @@ public class PlayerController : MonoBehaviour
             forceFieldObj = new GameObject("BlueForceFieldAura");
             forceFieldObj.transform.SetParent(transform, false);
             forceFieldObj.transform.localPosition = Vector3.zero;
-            // Más chico que la última vez (era 2.6f, ahora 1.95f)
-            forceFieldObj.transform.localScale = new Vector3(1.95f, 1.95f, 1f);
+            UpdateForceFieldScale();
 
             forceFieldSr = forceFieldObj.AddComponent<SpriteRenderer>();
             forceFieldSr.sprite = ChargeVisualUtils.GetForceFieldAuraSprite();
@@ -378,6 +409,7 @@ public class PlayerController : MonoBehaviour
             int baseOrder = shipSpriteRenderer != null ? shipSpriteRenderer.sortingOrder : 0;
             forceFieldSr.sortingOrder = baseOrder + 3;
         }
+        UpdateForceFieldScale();
         forceFieldObj.SetActive(false);
     }
 
@@ -509,7 +541,8 @@ public class PlayerController : MonoBehaviour
             new Vector2(140f, 22f),
             out shieldBarBgImage,
             out shieldBarFillImage,
-            out shieldBarWarningText);
+            out shieldBarWarningText,
+            out shieldBarValueText);
     }
 
     private void UpdateForceFieldAndShieldVisuals()
@@ -597,11 +630,24 @@ public class PlayerController : MonoBehaviour
 
         // 5. Barra de vida del escudo (fondo gris ligeramente oscuro, relleno celeste)
         displayedShieldCapacity = Mathf.MoveTowards(displayedShieldCapacity, currentShieldCapacity, Time.deltaTime * 90f);
-        float fillPct = Mathf.Clamp01(displayedShieldCapacity / maxShieldCapacity);
+        float fillPct = (maxShieldCapacity > 0.001f) ? Mathf.Clamp01(displayedShieldCapacity / maxShieldCapacity) : 0f;
 
         if (shieldBarFillImage != null)
         {
             shieldBarFillImage.fillAmount = fillPct;
+        }
+
+        if (shieldBarValueText != null)
+        {
+            if (HasShield)
+            {
+                if (!shieldBarValueText.gameObject.activeSelf) shieldBarValueText.gameObject.SetActive(true);
+                shieldBarValueText.text = $"{Mathf.CeilToInt(currentShieldCapacity)}/{Mathf.RoundToInt(maxShieldCapacity)}";
+            }
+            else
+            {
+                if (shieldBarValueText.gameObject.activeSelf) shieldBarValueText.gameObject.SetActive(false);
+            }
         }
 
         // 6. Al quedarse sin escudo: "SIN ESCUDOS" titila entre rojo y amarillo 5 veces en 5 segundos,
@@ -674,14 +720,15 @@ public class PlayerController : MonoBehaviour
     /// </summary>
     public bool TakeShieldDamage(float amount)
     {
+        if (isDying) return false;
         if (invulnerabilityTimer > 0f) return true; // En invulnerabilidad previa no se reduce salud ni escudo
         if (!HasShield) return false; // Escudo agotado, el daño impacta la salud de la nave
 
         bool wasShieldActive = HasShield;
         currentShieldCapacity = Mathf.Max(0f, currentShieldCapacity - amount);
 
-        // Otorga 2 segundos de invulnerabilidad con parpadeo al ser golpeado teniendo escudo
-        invulnerabilityTimer = invulnerabilityDuration;
+        // Otorga 1 segundo de invulnerabilidad con parpadeo al protegerse con escudo (reducido en 1s)
+        invulnerabilityTimer = shieldInvulnerabilityDuration;
         ApplyInvulnerableBlinkColor(true);
 
         if (wasShieldActive && !HasShield)
@@ -689,20 +736,42 @@ public class PlayerController : MonoBehaviour
             // El jugador se quedó sin escudo: parpadeo rojo/amarillo durante 5 segundos y luego se desvanece
             depletedWarningTimer = 5.0f;
             shieldBarAlpha = 1.0f;
+
+            if (SoundController.HasInstance)
+            {
+                SoundController.Instance.PlayPlayerShieldBreakSfx();
+            }
         }
         else
         {
             // Destello del contorno blanco y escudo circular al absorber impacto
             outlineAlpha = 1.0f;
             forceFieldAlpha = 1.0f;
-        }
 
-        if (SoundController.HasInstance)
-        {
-            SoundController.Instance.PlayPlayerHitSfx();
+            if (SoundController.HasInstance)
+            {
+                SoundController.Instance.PlayPlayerHitSfx();
+            }
         }
 
         return true;
+    }
+
+    public void BreakShieldInstantly()
+    {
+        bool hadShield = HasShield;
+        currentShieldCapacity = 0f;
+        displayedShieldCapacity = 0f;
+        depletedWarningTimer = 0f;
+        shieldBarAlpha = 0f;
+        if (shieldBarCanvasGroup != null) shieldBarCanvasGroup.alpha = 0f;
+        if (shieldBarValueText != null) shieldBarValueText.gameObject.SetActive(false);
+        UpdateForceFieldAndShieldVisuals();
+
+        if (hadShield && currentHealth > 0 && !isDying && SoundController.HasInstance)
+        {
+            SoundController.Instance.PlayPlayerShieldBreakSfx();
+        }
     }
 
     public void RestoreShield()
@@ -721,6 +790,12 @@ public class PlayerController : MonoBehaviour
         {
             shieldBarWarningText.gameObject.SetActive(false);
         }
+        if (shieldBarValueText != null)
+        {
+            shieldBarValueText.gameObject.SetActive(true);
+            shieldBarValueText.color = Color.black;
+            shieldBarValueText.text = $"{Mathf.RoundToInt(maxShieldCapacity)}/{Mathf.RoundToInt(maxShieldCapacity)}";
+        }
         if (shieldBarBgImage != null)
         {
             shieldBarBgImage.color = new Color(0.24f, 0.26f, 0.30f, 0.95f);
@@ -731,7 +806,7 @@ public class PlayerController : MonoBehaviour
     {
         CheckInsertCheatKey();
 
-        if (Time.timeScale == 0f) return;
+        if (Time.timeScale == 0f || isDying) return;
 
         // 1. Controles prioritarios (Movimiento, Disparo y Cambio de Arma)
         HandleMovement();
@@ -794,86 +869,21 @@ public class PlayerController : MonoBehaviour
 
     void LateUpdate()
     {
-        if (Time.timeScale == 0f) return;
+        if (Time.timeScale == 0f || isDying) return;
 
         ClampToScreen();
-        HandleTopCampPunishment();
+        // HandleTopCampPunishment() eliminado: la bala anti cheaters ha sido eliminada del juego
     }
 
     /// <summary>
-    /// Castiga al jugador si permanece en la zona superior muerta de la pantalla:
-    /// - Tarda 1.0s continuo (1 segundo menos que antes) en disparar la primera bala punitiva.
-    /// - Mientras siga arriba, dispara ráfagas cada 0.60s (40% más rápido de cadencia).
-    /// - La bala viaja horizontalmente a un 40% más de velocidad.
+    /// Bala anti-cheaters eliminada permanentemente por solicitud del usuario.
+    /// Se conserva el método vacío para evitar romper referencias residuales.
     /// </summary>
     private void HandleTopCampPunishment()
     {
-        if (currentHealth <= 0)
-        {
-            topCampTimer = 0f;
-            topCampRepeatTimer = 0f;
-            hasSpawnedFirstCampBullet = false;
-            return;
-        }
-
-        // La bala anti cheaters está activa en todas las oleadas normales y durante la Fase 1 del jefe;
-        // se desactiva ÚNICAMENTE a partir de la Fase 2 del jefe.
-        BossController boss = FindAnyObjectByType<BossController>();
-        bool isBossPhase2 = boss != null && boss.IsPhase2;
-
-        if (isBossPhase2)
-        {
-            topCampTimer = 0f;
-            topCampRepeatTimer = 0f;
-            hasSpawnedFirstCampBullet = false;
-            return;
-        }
-
-        if (GameManager.Instance != null &&
-            GameManager.Instance.currentState != GameManager.GameState.Playing &&
-            GameManager.Instance.currentState != GameManager.GameState.BossFight)
-        {
-            topCampTimer = 0f;
-            topCampRepeatTimer = 0f;
-            hasSpawnedFirstCampBullet = false;
-            return;
-        }
-
-        if (mainCam == null) mainCam = Camera.main;
-        if (mainCam == null) return;
-
-        float vertExtent = mainCam.orthographicSize;
-        float topEdge = mainCam.transform.position.y + vertExtent;
-        float topCampThresholdY = topEdge - (vertExtent * 0.22f);
-
-        if (transform.position.y >= topCampThresholdY)
-        {
-            if (!hasSpawnedFirstCampBullet)
-            {
-                topCampTimer += Time.deltaTime;
-                if (topCampTimer >= TopCampTriggerSeconds)
-                {
-                    hasSpawnedFirstCampBullet = true;
-                    topCampRepeatTimer = 0f;
-                    SpawnTopCampPunishmentBullet(mainCam.transform.position.x, vertExtent);
-                }
-            }
-            else
-            {
-                topCampRepeatTimer += Time.deltaTime;
-                if (topCampRepeatTimer >= TopCampRepeatCadence)
-                {
-                    topCampRepeatTimer = 0f;
-                    SpawnTopCampPunishmentBullet(mainCam.transform.position.x, vertExtent);
-                }
-            }
-        }
-        else
-        {
-            topCampTimer = 0f;
-            topCampRepeatTimer = 0f;
-            hasSpawnedFirstCampBullet = false;
-        }
+        topCampTimer = 0f;
+        topCampRepeatTimer = 0f;
+        hasSpawnedFirstCampBullet = false;
     }
 
     private void SpawnTopCampPunishmentBullet(float camCenterX, float vertExtent)
@@ -1446,16 +1456,23 @@ public class PlayerController : MonoBehaviour
         }
 
         string prefix = (playerIndex == 1) ? "1P: " : "2P: ";
-        float yPos = playerIndex == 1 ? 
-            ((GameManager.Instance != null && GameManager.Instance.IsPlayer2Joined) ? Screen.height - 48 : Screen.height - 30) : 
-            Screen.height - 24;
-        float labelWidth = Mathf.Max(200f, Screen.width - 660);
-        GUI.Label(new Rect(280, yPos, labelWidth, 24), prefix + modeStr, style);
+        float labelWidth = 340f;
+        if (playerIndex == 1)
+        {
+            style.alignment = TextAnchor.MiddleLeft;
+            GUI.Label(new Rect(280, Screen.height - 35, labelWidth, 24), prefix + modeStr, style);
+        }
+        else
+        {
+            style.alignment = TextAnchor.MiddleRight;
+            float xPos = Mathf.Max(300f, Screen.width - labelWidth - 35f);
+            GUI.Label(new Rect(xPos, Screen.height - 35, labelWidth, 24), prefix + modeStr, style);
+        }
     }
 
     public void TakeDamage(int amount)
     {
-        if (amount <= 0 || currentHealth <= 0 || invulnerabilityTimer > 0f) return;
+        if (amount <= 0 || currentHealth <= 0 || isDying || invulnerabilityTimer > 0f) return;
 
         currentHealth -= amount;
         currentHealth = System.Math.Max(currentHealth, 0L);
@@ -1473,11 +1490,6 @@ public class PlayerController : MonoBehaviour
         else
         {
             ClearInvulnerability();
-
-            if (SoundController.Instance != null)
-            {
-                SoundController.Instance.PlayPlayerDeathSfx();
-            }
         }
 
         if (GameManager.Instance != null)
@@ -1487,19 +1499,202 @@ public class PlayerController : MonoBehaviour
 
         if (currentHealth <= 0)
         {
-            if (playerIndex == 2)
+            StartCoroutine(PlayDeathAnimationRoutine());
+        }
+    }
+
+    /// <summary>
+    /// Secuencia completa de animación de muerte de los jugadores:
+    /// Fase 1 (0.35s): Espasmos y fallo crítico del núcleo con sacudidas y micro-explosiones.
+    /// Fase 2 (0.42s): Gran detonación central, sonido atronador, esquirlas de fuselaje volando y temblor de cámara.
+    /// Fase 3 (0.18s): Dispersión de partículas, conclusión y llamada al GameManager para revivir o Game Over.
+    /// </summary>
+    private IEnumerator PlayDeathAnimationRoutine()
+    {
+        isDying = true;
+        invulnerabilityTimer = 0f;
+
+        // 1. Desactivar colisiones para que no siga recibiendo daño durante la explosión
+        Collider2D[] cols = GetComponentsInChildren<Collider2D>(true);
+        for (int i = 0; i < cols.Length; i++)
+        {
+            if (cols[i] != null) cols[i].enabled = false;
+        }
+
+        // 2. Apagar elementos auxiliares de interfaz, indicador de carga, auras y campo de fuerza
+        if (chargeAuraObj != null) chargeAuraObj.SetActive(false);
+        if (chargeBarRoot != null) chargeBarRoot.SetActive(false);
+        if (shieldBarCanvasTransform != null) shieldBarCanvasTransform.gameObject.SetActive(false);
+        if (forceFieldObj != null) forceFieldObj.SetActive(false);
+        if (outlineRenderers != null)
+        {
+            for (int i = 0; i < outlineRenderers.Length; i++)
             {
-                gameObject.SetActive(false);
+                if (outlineRenderers[i] != null) outlineRenderers[i].gameObject.SetActive(false);
             }
-            else if (playerIndex == 1 && GameManager.Instance != null && GameManager.Instance.player2 != null && GameManager.Instance.player2.gameObject.activeInHierarchy && GameManager.Instance.player2.GetCurrentHealth() > 0)
+        }
+        if (hitboxDotObj != null) hitboxDotObj.SetActive(false);
+        if (badgeTransform != null) badgeTransform.gameObject.SetActive(false);
+        if (SoundController.HasInstance) SoundController.Instance.StopChargeSound();
+
+        Vector3 deathOrigin = transform.position;
+        Vector3 baseScale = (baseShipScale != Vector3.zero) ? baseShipScale : transform.localScale;
+        Color playerCol = GetBaseShipColor();
+
+        // Sonido de impacto contundente inicial
+        if (SoundController.HasInstance)
+        {
+            SoundController.Instance.PlayPlayerHitSfx();
+        }
+
+        // ==============================================================
+        // FASE 1: FALLO CRÍTICO Y ESPASMOS ESTRUCTURALES (0.35s)
+        // ==============================================================
+        float phase1Duration = 0.35f;
+        float elapsed = 0f;
+        float nextMicroExplosion = 0f;
+
+        while (elapsed < phase1Duration)
+        {
+            elapsed += Time.unscaledDeltaTime;
+            float t = Mathf.Clamp01(elapsed / phase1Duration);
+
+            // Sacudida violenta progresiva
+            float shake = Mathf.Lerp(4f, 20f, t);
+            Vector3 offset = new Vector3(
+                Random.Range(-shake, shake),
+                Random.Range(-shake, shake),
+                0f
+            );
+            transform.position = deathOrigin + offset;
+
+            // Inclinación errática por falla de motores
+            float angle = Mathf.Sin(elapsed * 45f) * Mathf.Lerp(6f, 30f, t);
+            transform.localRotation = Quaternion.Euler(0f, 0f, angle);
+
+            // Parpadeo estroboscópico entre color del jugador, alerta naranja y blanco crítico
+            if (shipSpriteRenderer != null)
             {
-                gameObject.SetActive(false);
+                float strobe = Mathf.Sin(elapsed * 55f) * 0.5f + 0.5f;
+                Color alertCol = playerIndex == 1 ? new Color(1.0f, 0.45f, 0.15f, 1f) : new Color(1.0f, 0.20f, 0.20f, 1f);
+                shipSpriteRenderer.color = Color.Lerp(Color.white, alertCol, strobe);
             }
 
-            if (GameManager.Instance != null)
+            // Chispas eléctricas y micro-estallidos sobre el casco
+            if (elapsed >= nextMicroExplosion)
             {
-                GameManager.Instance.OnPlayerDied(this);
+                Vector3 microPos = deathOrigin + (Vector3)(Random.insideUnitCircle * 22f);
+                EnemyExplosion.Spawn(microPos, EnemyTier.Tier1, new Vector3(50f, 50f, 1f));
+                nextMicroExplosion = elapsed + Random.Range(0.06f, 0.11f);
             }
+
+            yield return null;
+        }
+
+        // ==============================================================
+        // FASE 2: ¡GRAN DETONACIÓN CENTRAL CATACLÍSMICA Y FRAGMENTACIÓN! (0.42s)
+        // ==============================================================
+        Vector3 finalPos = transform.position;
+
+        // Sonido de muerte atronador
+        if (SoundController.HasInstance)
+        {
+            SoundController.Instance.PlayPlayerDeathSfx();
+        }
+
+        // Ocultar sprite del jugador ya que el fuselaje se pulveriza
+        if (shipSpriteRenderer != null) shipSpriteRenderer.enabled = false;
+
+        // Gran estallido central con doble onda expansiva
+        EnemyExplosion.Spawn(finalPos, EnemyTier.Tier4, new Vector3(145f, 145f, 1f));
+        EnemyExplosion.Spawn(finalPos + new Vector3(8f, -7f, 0f), EnemyTier.Tier2, new Vector3(105f, 105f, 1f));
+
+        // Anillo de energía y destello radial
+        EnemyExplosion.SpawnPlayerImpact(finalPos, false, 2.3f);
+
+        // Desprender pedazos de fuselaje ardiendo en abanico giratorio
+        SpawnDebrisParticles(finalPos, playerCol);
+
+        // Sacudida sísmica de la pantalla
+        yield return StartCoroutine(ShakeCamera(0.28f, 22f));
+
+        // Breve pausa para la disipación del humo
+        yield return new WaitForSecondsRealtime(0.18f);
+
+        // ==============================================================
+        // FASE 3: CONCLUSIÓN Y NOTIFICACIÓN AL GAME MANAGER
+        // ==============================================================
+        if (playerIndex == 2)
+        {
+            gameObject.SetActive(false);
+        }
+        else if (playerIndex == 1 && GameManager.Instance != null && GameManager.Instance.player2 != null && GameManager.Instance.player2.gameObject.activeInHierarchy && GameManager.Instance.player2.GetCurrentHealth() > 0)
+        {
+            gameObject.SetActive(false);
+        }
+
+        if (GameManager.Instance != null)
+        {
+            GameManager.Instance.OnPlayerDied(this);
+        }
+    }
+
+    private void SpawnDebrisParticles(Vector3 origin, Color baseColor)
+    {
+        Sprite sparkSprite = ChargeVisualUtils.GetPlasmaStreakSprite();
+        Sprite glowSprite = ChargeVisualUtils.GetGlowCircleSprite();
+
+        const int debrisCount = 8;
+        float baseAngle = Random.Range(0f, 360f);
+
+        for (int i = 0; i < debrisCount; i++)
+        {
+            float angle = baseAngle + (360f / debrisCount) * i + Random.Range(-15f, 15f);
+            float rad = angle * Mathf.Deg2Rad;
+            Vector3 dir = new Vector3(Mathf.Cos(rad), Mathf.Sin(rad), 0f);
+            float speed = Random.Range(180f, 380f);
+            float rotSpeed = Random.Range(-520f, 520f);
+            float size = Random.Range(20f, 36f);
+
+            GameObject debrisObj = new GameObject($"PlayerDebris_{playerIndex}_{i}");
+            debrisObj.transform.position = origin + dir * Random.Range(4f, 15f);
+            debrisObj.transform.rotation = Quaternion.Euler(0f, 0f, angle);
+
+            SpriteRenderer sr = debrisObj.AddComponent<SpriteRenderer>();
+            sr.sprite = (i % 2 == 0 && sparkSprite != null) ? sparkSprite : glowSprite;
+            sr.sortingOrder = 32;
+
+            Color startCol = (i % 3 == 0) ? Color.white : ((i % 2 == 0) ? new Color(1.0f, 0.55f, 0.15f, 1f) : baseColor);
+            sr.color = startCol;
+
+            PlayerDebrisPiece pieceComponent = debrisObj.AddComponent<PlayerDebrisPiece>();
+            pieceComponent.Launch(dir * speed, rotSpeed, new Vector3(size, size * 0.6f, 1f), startCol);
+        }
+    }
+
+    private IEnumerator ShakeCamera(float duration, float magnitude)
+    {
+        Camera cam = mainCam != null ? mainCam : Camera.main;
+        if (cam == null) yield break;
+
+        Vector3 originalPos = cam.transform.position;
+        float elapsed = 0f;
+
+        try
+        {
+            while (elapsed < duration)
+            {
+                elapsed += Time.unscaledDeltaTime;
+                float damper = 1f - Mathf.Clamp01(elapsed / duration);
+                float x = Random.Range(-1f, 1f) * magnitude * damper;
+                float y = Random.Range(-1f, 1f) * magnitude * damper;
+                if (cam != null) cam.transform.position = new Vector3(originalPos.x + x, originalPos.y + y, originalPos.z);
+                yield return null;
+            }
+        }
+        finally
+        {
+            if (cam != null) cam.transform.position = originalPos;
         }
     }
 
@@ -1566,8 +1761,11 @@ public class PlayerController : MonoBehaviour
 
     public void ReviveWithHealthAndInvulnerability(long targetHealth, float invulnerabilitySeconds)
     {
+        StopAllCoroutines();
+        isDying = false;
         gameObject.SetActive(true);
-        if (maxHealth < 10L) maxHealth = 10L;
+
+        if (maxHealth < 5L) maxHealth = 5L;
         currentHealth = System.Math.Clamp(targetHealth, 1L, maxHealth);
         topCampTimer = 0f;
         currentChargeTime = 0f;
@@ -1576,9 +1774,27 @@ public class PlayerController : MonoBehaviour
         hasFiredChargedShot = false;
         UpdateChargeVisuals(false, 0f, false);
 
+        transform.localRotation = Quaternion.identity;
+        if (baseShipScale != Vector3.zero) transform.localScale = baseShipScale;
+
+        if (shipSpriteRenderer == null) shipSpriteRenderer = GetComponent<SpriteRenderer>();
+        if (shipSpriteRenderer != null)
+        {
+            shipSpriteRenderer.enabled = true;
+            RestoreNormalShipColor();
+        }
+
+        Collider2D[] cols = GetComponentsInChildren<Collider2D>(true);
+        for (int i = 0; i < cols.Length; i++)
+        {
+            if (cols[i] != null) cols[i].enabled = true;
+        }
+
+        if (badgeTransform != null) badgeTransform.gameObject.SetActive(true);
+
         ApplyShipVisuals();
         ActivateInvulnerability(invulnerabilitySeconds);
-        RestoreShield();
+        BreakShieldInstantly(); // Al revivir, ya no tiene escudo activo
 
         if (GameManager.Instance != null)
         {
@@ -1591,6 +1807,29 @@ public class PlayerController : MonoBehaviour
         currentHealth = health;
         maxHealth = System.Math.Max(maxHealth, currentHealth);
         ClearInvulnerability();
+
+        if (currentHealth > 0)
+        {
+            StopAllCoroutines();
+            isDying = false;
+            transform.localRotation = Quaternion.identity;
+            if (baseShipScale != Vector3.zero) transform.localScale = baseShipScale;
+
+            if (shipSpriteRenderer == null) shipSpriteRenderer = GetComponent<SpriteRenderer>();
+            if (shipSpriteRenderer != null)
+            {
+                shipSpriteRenderer.enabled = true;
+                RestoreNormalShipColor();
+            }
+
+            Collider2D[] cols = GetComponentsInChildren<Collider2D>(true);
+            for (int i = 0; i < cols.Length; i++)
+            {
+                if (cols[i] != null) cols[i].enabled = true;
+            }
+
+            if (badgeTransform != null) badgeTransform.gameObject.SetActive(true);
+        }
     }
 
     public long GetCurrentHealth()
@@ -1618,17 +1857,41 @@ public class PlayerController : MonoBehaviour
 
     public void IncreaseMaxHealth(int amount)
     {
-        // La mejora otorga 2 vidas, hasta el máximo permitido de 10 vidas
-        if (currentHealth < 10)
+        // La mejora otorga 2 vidas, hasta el máximo permitido de 5 vidas
+        if (currentHealth < 5)
         {
-            currentHealth = System.Math.Min(10L, currentHealth + amount);
+            currentHealth = System.Math.Min(5L, currentHealth + amount);
         }
-        maxHealth = System.Math.Max(10L, currentHealth);
+        maxHealth = System.Math.Max(5L, currentHealth);
 
         if (GameManager.Instance != null)
         {
             GameManager.Instance.OnPlayerHealthChanged(this, currentHealth);
         }
+    }
+
+    public void UpgradeHealthAndShield(int healthAmount = 2, float shieldAmount = 10f, float areaMultiplier = 1.05f)
+    {
+        shieldUpgradeLevel++;
+
+        // Da 2 puntos de vida si no está al máximo (5 vidas)
+        if (currentHealth < 5)
+        {
+            currentHealth = System.Math.Min(5L, currentHealth + healthAmount);
+            maxHealth = System.Math.Max(5L, currentHealth);
+            if (GameManager.Instance != null)
+            {
+                GameManager.Instance.OnPlayerHealthChanged(this, currentHealth);
+            }
+        }
+
+        // Aumenta 10 puntos de salud al escudo, restaura el escudo y agranda +5% el radio y sprite visual
+        maxShieldCapacity += shieldAmount;
+        currentShieldCapacity = Mathf.Min(maxShieldCapacity, currentShieldCapacity + shieldAmount);
+        forceFieldRadius *= areaMultiplier;
+        UpdateForceFieldScale();
+        RestoreShield();
+        Debug.Log($"[PlayerController {playerIndex}] Salud y Escudo mejorados (Nivel {shieldUpgradeLevel}): Salud {currentHealth}/5, Escudo {currentShieldCapacity}/{maxShieldCapacity}, Radio {forceFieldRadius:F1}");
     }
 }
 
@@ -1701,7 +1964,8 @@ public static class ChargeVisualUtils
         Vector2 size,
         out Image bgImage,
         out Image fillImage,
-        out TextMeshProUGUI warningText)
+        out TextMeshProUGUI warningText,
+        out TextMeshProUGUI valueText)
     {
         GameObject root = new GameObject("ShieldBarTrack", typeof(RectTransform));
         root.transform.SetParent(parent, false);
@@ -1751,7 +2015,33 @@ public static class ChargeVisualUtils
         fillImage.fillAmount = 1f;
         fillImage.raycastTarget = false;
 
-        // 4. Texto amarillo de advertencia "SIN ESCUDOS"
+        // 4. Texto de puntos de salud del escudo (ej: "10/10", "20/20")
+        valueText = null;
+        try
+        {
+            GameObject valueObj = new GameObject("ValueText", typeof(RectTransform));
+            valueObj.transform.SetParent(root.transform, false);
+            RectTransform valueRt = valueObj.GetComponent<RectTransform>();
+            valueRt.anchorMin = Vector2.zero;
+            valueRt.anchorMax = Vector2.one;
+            valueRt.offsetMin = Vector2.zero;
+            valueRt.offsetMax = Vector2.zero;
+            valueText = valueObj.AddComponent<TextMeshProUGUI>();
+            TMP_FontAsset font = Resources.Load<TMP_FontAsset>("Fonts & Materials/LiberationSans SDF");
+            if (font != null) valueText.font = font;
+            valueText.text = "10/10";
+            valueText.alignment = TextAlignmentOptions.Center;
+            valueText.fontSize = 12.5f;
+            valueText.fontStyle = FontStyles.Bold;
+            valueText.color = Color.black;
+            valueText.raycastTarget = false;
+        }
+        catch (System.Exception ex)
+        {
+            Debug.LogWarning($"[ShieldBar ValueText Init] {ex.Message}");
+        }
+
+        // 5. Texto amarillo de advertencia "SIN ESCUDOS"
         warningText = null;
         try
         {
@@ -2049,5 +2339,50 @@ public static class ChargeVisualUtils
 
         zAngle = -currentBank * maxTiltDeg;
         scaleXMult = 1f - (rollForeshorten * Mathf.Abs(currentBank));
+    }
+}
+
+/// <summary>
+/// Pieza física de fuselaje desprendida en la animación de muerte del jugador.
+/// Se anima independientemente con rotación y desaceleración en espacio no escalado.
+/// </summary>
+public class PlayerDebrisPiece : MonoBehaviour
+{
+    public void Launch(Vector3 velocity, float rotSpeed, Vector3 startScale, Color startColor)
+    {
+        StartCoroutine(Animate(velocity, rotSpeed, startScale, startColor));
+    }
+
+    private IEnumerator Animate(Vector3 velocity, float rotSpeed, Vector3 startScale, Color startColor)
+    {
+        SpriteRenderer sr = GetComponent<SpriteRenderer>();
+        transform.localScale = startScale;
+
+        float lifetime = Random.Range(0.45f, 0.70f);
+        float elapsed = 0f;
+
+        while (elapsed < lifetime)
+        {
+            float dt = Time.unscaledDeltaTime;
+            elapsed += dt;
+            float t = Mathf.Clamp01(elapsed / lifetime);
+
+            transform.position += velocity * dt;
+            transform.Rotate(0f, 0f, rotSpeed * dt);
+            velocity = Vector3.Lerp(velocity, velocity * 0.2f, dt * 3.5f);
+
+            float currentScale = 1f - t * 0.5f;
+            transform.localScale = new Vector3(startScale.x * currentScale, startScale.y * currentScale, 1f);
+
+            if (sr != null)
+            {
+                float alpha = 1f - t * t;
+                sr.color = new Color(startColor.r, startColor.g, startColor.b, alpha);
+            }
+
+            yield return null;
+        }
+
+        Destroy(gameObject);
     }
 }

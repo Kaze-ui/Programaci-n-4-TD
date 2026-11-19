@@ -2751,7 +2751,7 @@ MonoBehaviour:
   fireRate: 0.217
   chargeTimeRequired: 2.2
   bulletDamage: 0.5
-  maxHealth: 10
+  maxHealth: 5
 --- !u!61 &995606719
 BoxCollider2D:
   m_ObjectHideFlags: 0
