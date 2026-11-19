@@ -49,8 +49,49 @@ public class DualMonitorLeaderboardManager : MonoBehaviour
     private string lastData2PJson = "";
     private float refreshTimer = 0f;
     private const float RefreshInterval = 0.5f;
+    private int lastDisplayCount = 1;
 
     public bool HasMultipleDisplays => Display.displays != null && Display.displays.Length > 1;
+
+    /// <summary>
+    /// Retorna true si el Salón de la Fama está cubriendo la pantalla principal (Display 0 / Laptop).
+    /// </summary>
+    public bool IsLeaderboardCoveringDisplay0
+    {
+        get
+        {
+            if (!HasMultipleDisplays) return showLeaderboardOnSingleDisplay;
+            return isGameOnDisplay2;
+        }
+    }
+
+    /// <summary>
+    /// Retorna el índice de pantalla donde debe mostrarse el videojuego (0 o 1).
+    /// </summary>
+    public int CurrentGameDisplayIndex
+    {
+        get
+        {
+            if (!HasMultipleDisplays) return 0;
+            return isGameOnDisplay2 ? 1 : 0;
+        }
+    }
+
+    /// <summary>
+    /// Indica si el Salón de la Fama está activo en un display específico (0 o 1).
+    /// </summary>
+    public bool IsLeaderboardActiveOnDisplay(int displayIndex)
+    {
+        if (!HasMultipleDisplays)
+        {
+            return displayIndex == 0 && showLeaderboardOnSingleDisplay;
+        }
+        else
+        {
+            int leaderboardDisplay = isGameOnDisplay2 ? 0 : 1;
+            return displayIndex == leaderboardDisplay;
+        }
+    }
 
     // Sprites procedurales cacheados
     private static Sprite s_PanelBg;
@@ -97,9 +138,27 @@ public class DualMonitorLeaderboardManager : MonoBehaviour
         RefreshLeaderboards();
     }
 
+    void OnEnable()
+    {
+        Display.onDisplaysUpdated += OnDisplaysUpdated;
+    }
+
+    void OnDisable()
+    {
+        Display.onDisplaysUpdated -= OnDisplaysUpdated;
+    }
+
+    private void OnDisplaysUpdated()
+    {
+        Debug.Log($"[DualMonitor] Cambio en monitores detectado: {Display.displays.Length} pantallas.");
+        ActivateSecondaryDisplay();
+        ApplyDisplayConfiguration();
+    }
+
     void OnDestroy()
     {
         SceneManager.sceneLoaded -= OnSceneLoaded;
+        Display.onDisplaysUpdated -= OnDisplaysUpdated;
     }
 
     private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
@@ -125,20 +184,44 @@ public class DualMonitorLeaderboardManager : MonoBehaviour
 
     void Update()
     {
+        // Detección dinámica de monitores conectados o cambios de modo de pantalla
+        int currentDisplayCount = Display.displays != null ? Display.displays.Length : 1;
+        if (currentDisplayCount != lastDisplayCount)
+        {
+            lastDisplayCount = currentDisplayCount;
+            if (currentDisplayCount > 1)
+            {
+                showLeaderboardOnSingleDisplay = false;
+                ActivateSecondaryDisplay();
+            }
+            ApplyDisplayConfiguration();
+        }
+
         bool hasMultiple = HasMultipleDisplays;
 
-        // F10 o L para alternar / intercambiar
+        // F10, F9 o L para alternar / intercambiar pantallas
         bool togglePressed = false;
         if (UnityEngine.InputSystem.Keyboard.current != null)
         {
             togglePressed = UnityEngine.InputSystem.Keyboard.current.f10Key.wasPressedThisFrame
+                         || UnityEngine.InputSystem.Keyboard.current.f9Key.wasPressedThisFrame
                          || UnityEngine.InputSystem.Keyboard.current.lKey.wasPressedThisFrame;
+        }
+
+        if (!togglePressed)
+        {
+            try
+            {
+                togglePressed = Input.GetKeyDown(KeyCode.F10) || Input.GetKeyDown(KeyCode.F9) || Input.GetKeyDown(KeyCode.L);
+            }
+            catch { }
         }
 
         if (togglePressed)
         {
-            if (hasMultiple)
+            if (HasMultipleDisplays)
             {
+                showLeaderboardOnSingleDisplay = false;
                 ToggleSwapDisplays();
             }
             else
@@ -171,6 +254,30 @@ public class DualMonitorLeaderboardManager : MonoBehaviour
             refreshTimer = 0f;
             CheckAndRefreshData();
             UpdateFooterStatus();
+            CleanupStrayObjects();
+        }
+    }
+
+    /// <summary>
+    /// Limpia cualquier botón u objeto que scripts externos hayan intentado emparentar en el canvas del Salón de la Fama.
+    /// </summary>
+    public void CleanupStrayObjects()
+    {
+        if (secondaryCanvas == null) return;
+        Transform stray = secondaryCanvas.transform.Find("TutorialButton");
+        if (stray != null)
+        {
+            Destroy(stray.gameObject);
+        }
+
+        // Asegurar que no haya botones interactivos huérfanos en la pantalla del Salón de la Fama
+        Button[] buttons = secondaryCanvas.GetComponentsInChildren<Button>(true);
+        foreach (var b in buttons)
+        {
+            if (b != null)
+            {
+                Destroy(b.gameObject);
+            }
         }
     }
 
@@ -243,7 +350,7 @@ public class DualMonitorLeaderboardManager : MonoBehaviour
             Canvas[] canvases = FindObjectsByType<Canvas>(FindObjectsInactive.Include, FindObjectsSortMode.None);
             foreach (var cv in canvases)
             {
-                if (cv != null && cv != secondaryCanvas)
+                if (cv != null && cv != secondaryCanvas && cv.isRootCanvas)
                 {
                     cv.targetDisplay = gameDisplay;
                 }
@@ -265,7 +372,7 @@ public class DualMonitorLeaderboardManager : MonoBehaviour
             Canvas[] canvases = FindObjectsByType<Canvas>(FindObjectsInactive.Include, FindObjectsSortMode.None);
             foreach (var cv in canvases)
             {
-                if (cv != null && cv != secondaryCanvas)
+                if (cv != null && cv != secondaryCanvas && cv.isRootCanvas)
                 {
                     cv.targetDisplay = 0;
                 }

@@ -1419,6 +1419,20 @@ public class PlayerController : MonoBehaviour
     {
         if (GameManager.Instance != null && GameManager.Instance.currentState != GameManager.GameState.Playing && GameManager.Instance.currentState != GameManager.GameState.BossFight) return;
 
+        // Si el Salón de la Fama está cubriendo Display 0 (Laptop), NUNCA dibujar los textos de los jugadores (1P ni 2P) en Display 0
+        if (DualMonitorLeaderboardManager.Instance != null)
+        {
+            if (DualMonitorLeaderboardManager.Instance.IsLeaderboardCoveringDisplay0 && Event.current.displayIndex == 0)
+            {
+                return;
+            }
+
+            if (DualMonitorLeaderboardManager.Instance.HasMultipleDisplays && Event.current.displayIndex != DualMonitorLeaderboardManager.Instance.CurrentGameDisplayIndex)
+            {
+                return;
+            }
+        }
+
         GUIStyle style = new GUIStyle(GUI.skin.label);
         style.fontSize = 17;
         style.fontStyle = FontStyle.Bold;

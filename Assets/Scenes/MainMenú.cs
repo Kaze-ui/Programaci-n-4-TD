@@ -8,8 +8,23 @@ public class MainMenu : MonoBehaviour
 {
     private static Sprite s_PlayBtnSprite;
     private static Sprite s_QuitBtnSprite;
-    private static Sprite s_TutorialBtnSprite;
     private TutorialPanelController tutorialController;
+
+    private Canvas GetMenuCanvas()
+    {
+        Canvas myCanvas = GetComponentInParent<Canvas>();
+        if (myCanvas != null && myCanvas.name != "LeaderboardSecondaryCanvas") return myCanvas;
+
+        Canvas[] allCanvases = FindObjectsByType<Canvas>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+        foreach (var c in allCanvases)
+        {
+            if (c != null && c.name != "LeaderboardSecondaryCanvas" && c.GetComponentInParent<DualMonitorLeaderboardManager>() == null)
+            {
+                return c;
+            }
+        }
+        return null;
+    }
 
     void Awake()
     {
@@ -17,7 +32,6 @@ public class MainMenu : MonoBehaviour
         EnsureMenuBackground();
         SetupTitle();
         SetupButtons();
-        EnsureTutorialPanel();
         if (SoundController.Instance != null)
         {
             SoundController.Instance.PlayMenuMusic();
@@ -30,7 +44,6 @@ public class MainMenu : MonoBehaviour
         EnsureEventSystem();
         EnsureMenuBackground();
         SetupButtons();
-        EnsureTutorialPanel();
     }
 
     private void EnsureEventSystem()
@@ -44,7 +57,7 @@ public class MainMenu : MonoBehaviour
 
     private void EnsureMenuBackground()
     {
-        Canvas canvas = FindAnyObjectByType<Canvas>();
+        Canvas canvas = GetMenuCanvas();
         if (canvas == null) return;
 
         // Asegurar que el Canvas tenga GraphicRaycaster activo
@@ -81,7 +94,7 @@ public class MainMenu : MonoBehaviour
 
     private void SetupTitle()
     {
-        Canvas canvas = FindAnyObjectByType<Canvas>();
+        Canvas canvas = GetMenuCanvas();
         if (canvas == null) return;
 
         TMP_FontAsset sharedFont = null;
@@ -158,8 +171,18 @@ public class MainMenu : MonoBehaviour
 
     private void SetupButtons()
     {
-        Canvas canvas = FindAnyObjectByType<Canvas>();
+        Canvas canvas = GetMenuCanvas();
         if (canvas == null) return;
+
+        // Eliminar cualquier botón de Tutorial que pudiera haber quedado creado en cualquier canvas
+        Button[] allActiveButtons = FindObjectsByType<Button>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+        foreach (var b in allActiveButtons)
+        {
+            if (b != null && b.name == "TutorialButton")
+            {
+                Destroy(b.gameObject);
+            }
+        }
 
         if (s_PlayBtnSprite == null)
         {
@@ -167,15 +190,6 @@ public class MainMenu : MonoBehaviour
                 new Color(0.22f, 0.74f, 0.97f, 1f),       // Borde cian neón
                 new Color(0.08f, 0.16f, 0.28f, 0.94f),     // Fondo superior
                 new Color(0.03f, 0.06f, 0.14f, 0.94f)      // Fondo inferior
-            );
-        }
-
-        if (s_TutorialBtnSprite == null)
-        {
-            s_TutorialBtnSprite = GenerateButtonSprite(
-                new Color(0.22f, 0.88f, 0.45f, 1f),       // Borde verde esmeralda
-                new Color(0.05f, 0.22f, 0.11f, 0.94f),     // Fondo superior
-                new Color(0.02f, 0.09f, 0.04f, 0.94f)      // Fondo inferior
             );
         }
 
@@ -191,57 +205,17 @@ public class MainMenu : MonoBehaviour
         // Configurar Botón PLAY (arriba)
         Button playBtn = FindButtonByName(canvas, "PlayButton");
 
-        // Configurar Botón TUTORIAL (en el centro, verde esmeralda con IDÉNTICO recuadro que Play y Quit)
-        Button tutorialBtn = FindButtonByName(canvas, "TutorialButton");
-        if (tutorialBtn == null)
-        {
-            if (playBtn != null)
-            {
-                // Duplicar el GameObject del PlayButton para copiar exactamente estructura y componentes
-                GameObject tutObj = Instantiate(playBtn.gameObject, canvas.transform, false);
-                tutObj.name = "TutorialButton";
-
-                // Remover el Button viejo clonado (que traía la llamada persistente a PlayGame) y agregar uno limpio
-                Button oldBtn = tutObj.GetComponent<Button>();
-                if (oldBtn != null)
-                {
-                    DestroyImmediate(oldBtn);
-                }
-                tutorialBtn = tutObj.AddComponent<Button>();
-            }
-            else
-            {
-                GameObject tutObj = new GameObject("TutorialButton", typeof(RectTransform));
-                tutObj.transform.SetParent(canvas.transform, false);
-                tutorialBtn = tutObj.AddComponent<Button>();
-
-                GameObject textObj = new GameObject("Text", typeof(RectTransform));
-                textObj.transform.SetParent(tutObj.transform, false);
-                TextMeshProUGUI tmp = textObj.AddComponent<TextMeshProUGUI>();
-                TMP_FontAsset sharedFont = null;
-                TextMeshProUGUI anyTmp = canvas.GetComponentInChildren<TextMeshProUGUI>();
-                if (anyTmp != null) sharedFont = anyTmp.font;
-                if (sharedFont != null) tmp.font = sharedFont;
-            }
-        }
-
-        tutorialBtn.onClick.RemoveAllListeners();
-        tutorialBtn.onClick.AddListener(OpenTutorial);
-
         // Configurar Botón QUIT (abajo)
         Button quitBtn = FindButtonByName(canvas, "QuitButton");
 
         if (playBtn != null)
         {
-            StyleButton(playBtn, new Vector2(0f, 35f), s_PlayBtnSprite, "<color=#38BDF8><b>PLAY</b></color>", new Color(0.22f, 0.74f, 0.97f));
+            StyleButton(playBtn, new Vector2(0f, 25f), s_PlayBtnSprite, "<color=#38BDF8><b>PLAY</b></color>", new Color(0.22f, 0.74f, 0.97f));
         }
-
-        // Asegurar que el botón del tutorial tenga el mismo recuadro pero en color verde esmeralda
-        StyleButton(tutorialBtn, new Vector2(0f, -35f), s_TutorialBtnSprite, "<color=#4ADE80><b>TUTORIAL</b></color>", new Color(0.22f, 0.88f, 0.45f));
 
         if (quitBtn != null)
         {
-            StyleButton(quitBtn, new Vector2(0f, -105f), s_QuitBtnSprite, "<color=#FF6B6B><b>QUIT</b></color>", new Color(1f, 0.42f, 0.42f));
+            StyleButton(quitBtn, new Vector2(0f, -50f), s_QuitBtnSprite, "<color=#FF6B6B><b>QUIT</b></color>", new Color(1f, 0.42f, 0.42f));
         }
     }
 
@@ -381,7 +355,7 @@ public class MainMenu : MonoBehaviour
     {
         if (tutorialController != null) return;
 
-        Canvas canvas = FindAnyObjectByType<Canvas>();
+        Canvas canvas = GetMenuCanvas();
         if (canvas == null) return;
 
         Transform existingPanel = canvas.transform.Find("TutorialPanel");

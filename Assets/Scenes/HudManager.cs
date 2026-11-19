@@ -1628,6 +1628,19 @@ public class HUDManager : MonoBehaviour
 
     void OnGUI()
     {
+        if (DualMonitorLeaderboardManager.Instance != null)
+        {
+            if (DualMonitorLeaderboardManager.Instance.IsLeaderboardCoveringDisplay0 && Event.current.displayIndex == 0)
+            {
+                return;
+            }
+
+            if (DualMonitorLeaderboardManager.Instance.HasMultipleDisplays && Event.current.displayIndex != DualMonitorLeaderboardManager.Instance.CurrentGameDisplayIndex)
+            {
+                return;
+            }
+        }
+
         DrawBossHealthBar();
     }
 
