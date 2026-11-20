@@ -35,6 +35,11 @@ public class DualMonitorLeaderboardManager : MonoBehaviour
     private Canvas secondaryCanvas;
     private CanvasScaler secondaryScaler;
 
+    private Canvas secondaryCursorCanvas;
+    private RectTransform secondaryCursorRect;
+    private static Texture2D s_CursorTexture;
+    private static Sprite s_CursorSprite;
+
     private TextMeshProUGUI[] rows1P = new TextMeshProUGUI[10];
     private Image[] rowBgs1P = new Image[10];
 
@@ -124,7 +129,9 @@ public class DualMonitorLeaderboardManager : MonoBehaviour
         isGameOnDisplay2 = PlayerPrefs.GetInt(PrefKey_GameOnDisplay2, 1) == 1;
 
         EnsureSprites();
+        EnsureCursorAssets();
         BuildSecondaryDisplayHierarchy();
+        BuildSecondaryCursorHierarchy();
         ApplyDisplayConfiguration();
         RefreshLeaderboards();
 
@@ -136,6 +143,7 @@ public class DualMonitorLeaderboardManager : MonoBehaviour
         ApplyDisplayConfiguration();
         StartCoroutine(ApplyDisplayConfigurationDeferred());
         RefreshLeaderboards();
+        UpdateCursorVisibilityAndPosition();
     }
 
     void OnEnable()
@@ -184,6 +192,8 @@ public class DualMonitorLeaderboardManager : MonoBehaviour
 
     void Update()
     {
+        UpdateCursorVisibilityAndPosition();
+
         // Detección dinámica de monitores conectados o cambios de modo de pantalla
         int currentDisplayCount = Display.displays != null ? Display.displays.Length : 1;
         if (currentDisplayCount != lastDisplayCount)
@@ -199,20 +209,24 @@ public class DualMonitorLeaderboardManager : MonoBehaviour
 
         bool hasMultiple = HasMultipleDisplays;
 
-        // F10, F9 o L para alternar / intercambiar pantallas
+        // F10, F9, F8, L, Backquote (~) o Ctrl+Tab para alternar / intercambiar pantallas
         bool togglePressed = false;
         if (UnityEngine.InputSystem.Keyboard.current != null)
         {
-            togglePressed = UnityEngine.InputSystem.Keyboard.current.f10Key.wasPressedThisFrame
-                         || UnityEngine.InputSystem.Keyboard.current.f9Key.wasPressedThisFrame
-                         || UnityEngine.InputSystem.Keyboard.current.lKey.wasPressedThisFrame;
+            var kb = UnityEngine.InputSystem.Keyboard.current;
+            togglePressed = kb.f10Key.wasPressedThisFrame
+                         || kb.f9Key.wasPressedThisFrame
+                         || kb.f8Key.wasPressedThisFrame
+                         || kb.lKey.wasPressedThisFrame
+                         || kb.backquoteKey.wasPressedThisFrame
+                         || (kb.tabKey.wasPressedThisFrame && kb.ctrlKey.isPressed);
         }
 
         if (!togglePressed)
         {
             try
             {
-                togglePressed = Input.GetKeyDown(KeyCode.F10) || Input.GetKeyDown(KeyCode.F9) || Input.GetKeyDown(KeyCode.L);
+                togglePressed = Input.GetKeyDown(KeyCode.F10) || Input.GetKeyDown(KeyCode.F9) || Input.GetKeyDown(KeyCode.F8) || Input.GetKeyDown(KeyCode.L);
             }
             catch { }
         }
@@ -270,11 +284,11 @@ public class DualMonitorLeaderboardManager : MonoBehaviour
             Destroy(stray.gameObject);
         }
 
-        // Asegurar que no haya botones interactivos huérfanos en la pantalla del Salón de la Fama
+        // Asegurar que no haya botones interactivos huérfanos en la pantalla del Salón de la Fama (excepto el botón legítimo de cambiar pantalla)
         Button[] buttons = secondaryCanvas.GetComponentsInChildren<Button>(true);
         foreach (var b in buttons)
         {
-            if (b != null)
+            if (b != null && b.name != "SwapDisplayButton")
             {
                 Destroy(b.gameObject);
             }
@@ -336,6 +350,13 @@ public class DualMonitorLeaderboardManager : MonoBehaviour
                 secondaryCanvas.gameObject.SetActive(true);
             }
 
+            if (secondaryCursorCanvas != null)
+            {
+                secondaryCursorCanvas.targetDisplay = 1; // Pinned to Big Screen (Display 1)
+                secondaryCursorCanvas.enabled = true;
+                secondaryCursorCanvas.gameObject.SetActive(true);
+            }
+
             // Asignar todas las cámaras del juego al display de juego
             Camera[] cams = FindObjectsByType<Camera>(FindObjectsInactive.Include, FindObjectsSortMode.None);
             foreach (var c in cams)
@@ -350,7 +371,7 @@ public class DualMonitorLeaderboardManager : MonoBehaviour
             Canvas[] canvases = FindObjectsByType<Canvas>(FindObjectsInactive.Include, FindObjectsSortMode.None);
             foreach (var cv in canvases)
             {
-                if (cv != null && cv != secondaryCanvas && cv.isRootCanvas)
+                if (cv != null && cv != secondaryCanvas && cv != secondaryCursorCanvas && cv.isRootCanvas)
                 {
                     cv.targetDisplay = gameDisplay;
                 }
@@ -372,7 +393,7 @@ public class DualMonitorLeaderboardManager : MonoBehaviour
             Canvas[] canvases = FindObjectsByType<Canvas>(FindObjectsInactive.Include, FindObjectsSortMode.None);
             foreach (var cv in canvases)
             {
-                if (cv != null && cv != secondaryCanvas && cv.isRootCanvas)
+                if (cv != null && cv != secondaryCanvas && cv != secondaryCursorCanvas && cv.isRootCanvas)
                 {
                     cv.targetDisplay = 0;
                 }
@@ -393,6 +414,16 @@ public class DualMonitorLeaderboardManager : MonoBehaviour
                 secondaryCanvas.sortingOrder = 9999;
                 secondaryCanvas.enabled = showLeaderboardOnSingleDisplay;
                 secondaryCanvas.gameObject.SetActive(showLeaderboardOnSingleDisplay);
+            }
+
+            if (secondaryCursorCanvas != null)
+            {
+                secondaryCursorCanvas.enabled = false;
+                secondaryCursorCanvas.gameObject.SetActive(false);
+            }
+            if (secondaryCursorRect != null)
+            {
+                secondaryCursorRect.gameObject.SetActive(false);
             }
         }
     }
@@ -671,6 +702,55 @@ public class DualMonitorLeaderboardManager : MonoBehaviour
         liveRt.anchoredPosition = new Vector2(-30f, 0f);
         liveRt.sizeDelta = new Vector2(250f, 40f);
 
+        // Botón visual para intercambiar pantallas con un clic de mouse en la leaderboard
+        GameObject swapBtnObj = new GameObject("SwapDisplayButton", typeof(RectTransform), typeof(Image), typeof(Button));
+        swapBtnObj.transform.SetParent(headerObj.transform, false);
+        RectTransform swapRt = swapBtnObj.GetComponent<RectTransform>();
+        swapRt.anchorMin = new Vector2(0f, 0.5f);
+        swapRt.anchorMax = new Vector2(0f, 0.5f);
+        swapRt.pivot = new Vector2(0f, 0.5f);
+        swapRt.anchoredPosition = new Vector2(30f, 0f);
+        swapRt.sizeDelta = new Vector2(290f, 44f);
+
+        Image swapImg = swapBtnObj.GetComponent<Image>();
+        swapImg.sprite = MainMenu.GeneratePanelSprite(290, 44, 8, 2, new Color(0.22f, 0.74f, 0.97f, 0.90f), new Color(0.06f, 0.12f, 0.22f, 0.95f), new Color(0.02f, 0.05f, 0.11f, 0.95f));
+        swapImg.type = Image.Type.Sliced;
+
+        Button swapBtn = swapBtnObj.GetComponent<Button>();
+        swapBtn.targetGraphic = swapImg;
+        ColorBlock scb = swapBtn.colors;
+        scb.normalColor = Color.white;
+        scb.highlightedColor = new Color(1.2f, 1.2f, 1.2f, 1f);
+        scb.pressedColor = new Color(0.7f, 0.7f, 0.7f, 1f);
+        swapBtn.colors = scb;
+        swapBtn.onClick.AddListener(() =>
+        {
+            if (HasMultipleDisplays)
+            {
+                showLeaderboardOnSingleDisplay = false;
+                ToggleSwapDisplays();
+            }
+            else
+            {
+                ToggleLeaderboardSingleDisplay();
+            }
+        });
+
+        GameObject swapTextObj = new GameObject("Text", typeof(RectTransform), typeof(TextMeshProUGUI));
+        swapTextObj.transform.SetParent(swapBtnObj.transform, false);
+        RectTransform swapTextRt = swapTextObj.GetComponent<RectTransform>();
+        swapTextRt.anchorMin = Vector2.zero;
+        swapTextRt.anchorMax = Vector2.one;
+        swapTextRt.offsetMin = Vector2.zero;
+        swapTextRt.offsetMax = Vector2.zero;
+        TextMeshProUGUI swapTmp = swapTextObj.GetComponent<TextMeshProUGUI>();
+        if (font != null) swapTmp.font = font;
+        swapTmp.text = "<color=#38BDF8>⇄ CAMBIAR PANTALLA</color> <size=12><color=#94A3B8>[F10 / L]</color></size>";
+        swapTmp.fontSize = 15f;
+        swapTmp.fontStyle = FontStyles.Bold;
+        swapTmp.alignment = TextAlignmentOptions.Center;
+        swapTmp.raycastTarget = false;
+
         // 5. Dos columnas de tablas (Lado Izquierdo: 1 Jugador | Lado Derecho: 2 Jugadores)
         float cardWidth = 880f;
         float cardHeight = 840f;
@@ -920,5 +1000,170 @@ public class DualMonitorLeaderboardManager : MonoBehaviour
                 new Color(0.20f, 0.11f, 0.04f, 0.88f),
                 new Color(0.11f, 0.06f, 0.02f, 0.92f));
         }
+    }
+
+    // ==========================================
+    // SISTEMA DE CURSOR MULTI-PANTALLA (Display 1 / Monitor Grande)
+    // ==========================================
+
+    private void BuildSecondaryCursorHierarchy()
+    {
+        if (secondaryCursorCanvas != null) return;
+
+        EnsureCursorAssets();
+
+        GameObject cursorCanvasObj = new GameObject("LeaderboardSecondaryCursorCanvas");
+        cursorCanvasObj.transform.SetParent(transform, false);
+
+        secondaryCursorCanvas = cursorCanvasObj.AddComponent<Canvas>();
+        secondaryCursorCanvas.renderMode = RenderMode.ScreenSpaceOverlay;
+        secondaryCursorCanvas.targetDisplay = 1; // Pinned al Display 1 (Monitor Grande / TV)
+        secondaryCursorCanvas.sortingOrder = 32767; // Prioridad máxima por encima de cualquier interfaz
+
+        CanvasScaler scaler = cursorCanvasObj.AddComponent<CanvasScaler>();
+        scaler.uiScaleMode = CanvasScaler.ScaleMode.ConstantPixelSize;
+
+        GameObject cursorImgObj = new GameObject("VirtualCursor", typeof(RectTransform), typeof(Image));
+        cursorImgObj.transform.SetParent(cursorCanvasObj.transform, false);
+
+        secondaryCursorRect = cursorImgObj.GetComponent<RectTransform>();
+        secondaryCursorRect.anchorMin = Vector2.zero;
+        secondaryCursorRect.anchorMax = Vector2.zero;
+        secondaryCursorRect.pivot = new Vector2(0f, 1f); // Hotspot en la punta superior izquierda de la flecha
+        secondaryCursorRect.sizeDelta = new Vector2(28f, 28f);
+
+        Image img = cursorImgObj.GetComponent<Image>();
+        img.sprite = s_CursorSprite;
+        img.raycastTarget = false; // NUNCA bloquear raycasts ni clics a botones
+
+        cursorImgObj.SetActive(false);
+    }
+
+    private void UpdateCursorVisibilityAndPosition()
+    {
+        try
+        {
+            // Forzar siempre que Unity no bloquee ni oculte el cursor en ningún estado
+            Cursor.visible = true;
+            Cursor.lockState = CursorLockMode.None;
+
+            if (secondaryCursorRect == null) return;
+
+            if (HasMultipleDisplays)
+            {
+                Vector2 rawMousePos = Vector2.zero;
+                if (UnityEngine.InputSystem.Mouse.current != null)
+                {
+                    rawMousePos = UnityEngine.InputSystem.Mouse.current.position.ReadValue();
+                }
+                else
+                {
+                    try { rawMousePos = Input.mousePosition; } catch { }
+                }
+
+                Vector3 rel = Display.RelativeMouseAt(new Vector3(rawMousePos.x, rawMousePos.y, 0f));
+
+                int primaryWidth = (Display.displays != null && Display.displays.Length > 0) ? Display.displays[0].systemWidth : Screen.width;
+
+                // Si el cursor del mouse está físicamente en Display 1 (Monitor Grande)
+                if (rel != Vector3.zero && (int)rel.z == 1)
+                {
+                    if (!secondaryCursorRect.gameObject.activeSelf)
+                    {
+                        secondaryCursorRect.gameObject.SetActive(true);
+                    }
+                    secondaryCursorRect.anchoredPosition = new Vector2(rel.x, rel.y);
+                }
+                else if (rawMousePos.x >= primaryWidth)
+                {
+                    // Fallback directo por coordenadas de escritorio si RelativeMouseAt devolvió zero
+                    if (!secondaryCursorRect.gameObject.activeSelf)
+                    {
+                        secondaryCursorRect.gameObject.SetActive(true);
+                    }
+                    secondaryCursorRect.anchoredPosition = new Vector2(rawMousePos.x - primaryWidth, rawMousePos.y);
+                }
+                else
+                {
+                    // Si el mouse está en Display 0 (Laptop) o fuera de la pantalla, apagar el cursor virtual del Display 1
+                    if (secondaryCursorRect.gameObject.activeSelf)
+                    {
+                        secondaryCursorRect.gameObject.SetActive(false);
+                    }
+                }
+            }
+            else
+            {
+                if (secondaryCursorRect.gameObject.activeSelf)
+                {
+                    secondaryCursorRect.gameObject.SetActive(false);
+                }
+            }
+        }
+        catch { }
+    }
+
+    private static void EnsureCursorAssets()
+    {
+        if (s_CursorTexture == null)
+        {
+            s_CursorTexture = GenerateCursorTexture();
+            s_CursorSprite = Sprite.Create(s_CursorTexture, new Rect(0, 0, s_CursorTexture.width, s_CursorTexture.height), new Vector2(0f, 1f));
+            Cursor.SetCursor(s_CursorTexture, Vector2.zero, CursorMode.Auto);
+        }
+    }
+
+    private static Texture2D GenerateCursorTexture()
+    {
+        int size = 32;
+        Texture2D tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
+        tex.filterMode = FilterMode.Point;
+        Color[] pixels = new Color[size * size];
+        for (int i = 0; i < pixels.Length; i++) pixels[i] = Color.clear;
+
+        Color shadowCol = new Color(0.01f, 0.02f, 0.06f, 0.95f);
+        Color borderCol = new Color(0.22f, 0.74f, 0.97f, 1.0f);
+        Color fillCol = new Color(1.0f, 1.0f, 1.0f, 1.0f);
+
+        string[] pattern = new string[]
+        {
+            "S...............................",
+            "SB..............................",
+            "SBFB............................",
+            "SBFFB...........................",
+            "SBFFFB..........................",
+            "SBFFFFB.........................",
+            "SBFFFFFB........................",
+            "SBFFFFFFB.......................",
+            "SBFFFFFFFB......................",
+            "SBFFFFFFFFB.....................",
+            "SBFFFFFFFFFB....................",
+            "SBFFFFFFFFFFB...................",
+            "SBFFFFFFFFBBS...................",
+            "SBFFFFBBFBBS....................",
+            "SBFFFB.SBFB.....................",
+            "SBFFB..SBFB.....................",
+            "SBFB....SBFB....................",
+            "SBB......SBFB...................",
+            "SB.......SBFB...................",
+            "S.........SBB..................."
+        };
+
+        for (int row = 0; row < pattern.Length; row++)
+        {
+            string line = pattern[row];
+            int texY = (size - 1) - row;
+            for (int col = 0; col < line.Length && col < size; col++)
+            {
+                char c = line[col];
+                if (c == 'S') pixels[texY * size + col] = shadowCol;
+                else if (c == 'B') pixels[texY * size + col] = borderCol;
+                else if (c == 'F') pixels[texY * size + col] = fillCol;
+            }
+        }
+
+        tex.SetPixels(pixels);
+        tex.Apply();
+        return tex;
     }
 }

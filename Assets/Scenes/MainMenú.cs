@@ -7,13 +7,31 @@ using TMPro;
 public class MainMenu : MonoBehaviour
 {
     private static Sprite s_PlayBtnSprite;
+    private static Sprite s_TutorialBtnSprite;
     private static Sprite s_QuitBtnSprite;
     private TutorialPanelController tutorialController;
 
     private Canvas GetMenuCanvas()
     {
         Canvas myCanvas = GetComponentInParent<Canvas>();
-        if (myCanvas != null && myCanvas.name != "LeaderboardSecondaryCanvas") return myCanvas;
+        if (myCanvas != null && myCanvas.name != "LeaderboardSecondaryCanvas" && myCanvas.GetComponentInParent<DualMonitorLeaderboardManager>() == null)
+        {
+            return myCanvas;
+        }
+
+        // Buscar el canvas que contiene el PlayButton original del menú principal
+        Button[] allButtons = FindObjectsByType<Button>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+        foreach (var b in allButtons)
+        {
+            if (b != null && b.name == "PlayButton")
+            {
+                Canvas c = b.GetComponentInParent<Canvas>();
+                if (c != null && c.name != "LeaderboardSecondaryCanvas" && c.GetComponentInParent<DualMonitorLeaderboardManager>() == null)
+                {
+                    return c;
+                }
+            }
+        }
 
         Canvas[] allCanvases = FindObjectsByType<Canvas>(FindObjectsInactive.Include, FindObjectsSortMode.None);
         foreach (var c in allCanvases)
@@ -32,6 +50,7 @@ public class MainMenu : MonoBehaviour
         EnsureMenuBackground();
         SetupTitle();
         SetupButtons();
+        EnsureTutorialPanel();
         if (SoundController.Instance != null)
         {
             SoundController.Instance.PlayMenuMusic();
@@ -44,6 +63,34 @@ public class MainMenu : MonoBehaviour
         EnsureEventSystem();
         EnsureMenuBackground();
         SetupButtons();
+        EnsureTutorialPanel();
+    }
+
+    void Update()
+    {
+        bool toggle = false;
+        if (UnityEngine.InputSystem.Keyboard.current != null)
+        {
+            var kb = UnityEngine.InputSystem.Keyboard.current;
+            toggle = kb.f10Key.wasPressedThisFrame
+                  || kb.f9Key.wasPressedThisFrame
+                  || kb.f8Key.wasPressedThisFrame
+                  || kb.lKey.wasPressedThisFrame
+                  || kb.backquoteKey.wasPressedThisFrame
+                  || (kb.tabKey.wasPressedThisFrame && kb.ctrlKey.isPressed);
+        }
+
+        if (toggle && DualMonitorLeaderboardManager.Instance != null)
+        {
+            if (DualMonitorLeaderboardManager.Instance.HasMultipleDisplays)
+            {
+                DualMonitorLeaderboardManager.Instance.ToggleSwapDisplays();
+            }
+            else
+            {
+                DualMonitorLeaderboardManager.Instance.ToggleLeaderboardSingleDisplay();
+            }
+        }
     }
 
     private void EnsureEventSystem()
@@ -113,7 +160,8 @@ public class MainMenu : MonoBehaviour
         titleRt.anchoredPosition = new Vector2(0f, 175f);
         titleRt.sizeDelta = new Vector2(750f, 110f);
 
-        TextMeshProUGUI titleTmp = titleObj.GetComponent<TextMeshProUGUI>() ?? titleObj.AddComponent<TextMeshProUGUI>();
+        TextMeshProUGUI titleTmp = titleObj.GetComponent<TextMeshProUGUI>();
+        if (titleTmp == null) titleTmp = titleObj.AddComponent<TextMeshProUGUI>();
         if (sharedFont != null) titleTmp.font = sharedFont;
         titleTmp.text = "<color=#38BDF8>SPACE</color> <color=#FBBF24>WARS</color>";
         titleTmp.fontSize = 76;
@@ -142,7 +190,8 @@ public class MainMenu : MonoBehaviour
         }
 
         // Placa de respaldo oscura translúcida con sutil borde cian para contraste cristalino
-        Image subBg = subObj.GetComponent<Image>() ?? subObj.AddComponent<Image>();
+        Image subBg = subObj.GetComponent<Image>();
+        if (subBg == null) subBg = subObj.AddComponent<Image>();
         subBg.sprite = GenerateButtonSprite(new Color(0.22f, 0.74f, 0.97f, 0.55f), new Color(0.02f, 0.05f, 0.12f, 0.90f), new Color(0.01f, 0.02f, 0.06f, 0.90f));
         subBg.type = Image.Type.Simple;
         subBg.raycastTarget = false;
@@ -158,7 +207,8 @@ public class MainMenu : MonoBehaviour
         textRt.offsetMin = Vector2.zero;
         textRt.offsetMax = Vector2.zero;
 
-        TextMeshProUGUI subTmp = textChildObj.GetComponent<TextMeshProUGUI>() ?? textChildObj.AddComponent<TextMeshProUGUI>();
+        TextMeshProUGUI subTmp = textChildObj.GetComponent<TextMeshProUGUI>();
+        if (subTmp == null) subTmp = textChildObj.AddComponent<TextMeshProUGUI>();
         if (sharedFont != null) subTmp.font = sharedFont;
         // Texto con brillo blanco/plateado de máximo contraste
         subTmp.text = "<color=#F8FAFC><b>PROTOCOLO DE DEFENSA GALÁCTICA</b></color>";
@@ -174,13 +224,22 @@ public class MainMenu : MonoBehaviour
         Canvas canvas = GetMenuCanvas();
         if (canvas == null) return;
 
-        // Eliminar cualquier botón de Tutorial que pudiera haber quedado creado en cualquier canvas
-        Button[] allActiveButtons = FindObjectsByType<Button>(FindObjectsInactive.Include, FindObjectsSortMode.None);
-        foreach (var b in allActiveButtons)
+        // Limpiar cualquier botón huérfano en la leaderboard
+        DualMonitorLeaderboardManager dmlm = DualMonitorLeaderboardManager.Instance;
+        if (dmlm != null)
         {
-            if (b != null && b.name == "TutorialButton")
+            dmlm.CleanupStrayObjects();
+        }
+        else
+        {
+            GameObject lbCanvas = GameObject.Find("LeaderboardSecondaryCanvas");
+            if (lbCanvas != null)
             {
-                Destroy(b.gameObject);
+                Button[] lbButtons = lbCanvas.GetComponentsInChildren<Button>(true);
+                foreach (var b in lbButtons)
+                {
+                    if (b != null) Destroy(b.gameObject);
+                }
             }
         }
 
@@ -190,6 +249,15 @@ public class MainMenu : MonoBehaviour
                 new Color(0.22f, 0.74f, 0.97f, 1f),       // Borde cian neón
                 new Color(0.08f, 0.16f, 0.28f, 0.94f),     // Fondo superior
                 new Color(0.03f, 0.06f, 0.14f, 0.94f)      // Fondo inferior
+            );
+        }
+
+        if (s_TutorialBtnSprite == null)
+        {
+            s_TutorialBtnSprite = GenerateButtonSprite(
+                new Color(0.22f, 0.88f, 0.45f, 1f),       // Borde verde esmeralda
+                new Color(0.05f, 0.22f, 0.11f, 0.94f),     // Fondo superior
+                new Color(0.02f, 0.09f, 0.04f, 0.94f)      // Fondo inferior
             );
         }
 
@@ -205,17 +273,61 @@ public class MainMenu : MonoBehaviour
         // Configurar Botón PLAY (arriba)
         Button playBtn = FindButtonByName(canvas, "PlayButton");
 
+        // Configurar Botón TUTORIAL (centro, verde esmeralda con idéntico diseño que Play y Quit)
+        Button tutorialBtn = FindButtonByName(canvas, "TutorialButton");
+        if (tutorialBtn == null)
+        {
+            if (playBtn != null)
+            {
+                // Duplicar el GameObject del PlayButton para copiar exactamente estructura y componentes
+                GameObject tutObj = Instantiate(playBtn.gameObject, canvas.transform, false);
+                tutObj.name = "TutorialButton";
+
+                // Remover el Button viejo clonado (que traía la llamada persistente a PlayGame) y agregar uno limpio
+                Button oldBtn = tutObj.GetComponent<Button>();
+                if (oldBtn != null)
+                {
+                    DestroyImmediate(oldBtn);
+                }
+                tutorialBtn = tutObj.AddComponent<Button>();
+            }
+            else
+            {
+                GameObject tutObj = new GameObject("TutorialButton", typeof(RectTransform));
+                tutObj.transform.SetParent(canvas.transform, false);
+                tutorialBtn = tutObj.AddComponent<Button>();
+
+                GameObject textObj = new GameObject("Text", typeof(RectTransform));
+                textObj.transform.SetParent(tutObj.transform, false);
+                TextMeshProUGUI tmp = textObj.AddComponent<TextMeshProUGUI>();
+                TMP_FontAsset sharedFont = null;
+                TextMeshProUGUI anyTmp = canvas.GetComponentInChildren<TextMeshProUGUI>();
+                if (anyTmp != null) sharedFont = anyTmp.font;
+                if (sharedFont != null) tmp.font = sharedFont;
+            }
+        }
+
+        if (tutorialBtn.transform.parent != canvas.transform)
+        {
+            tutorialBtn.transform.SetParent(canvas.transform, false);
+        }
+
+        tutorialBtn.onClick.RemoveAllListeners();
+        tutorialBtn.onClick.AddListener(OpenTutorial);
+
         // Configurar Botón QUIT (abajo)
         Button quitBtn = FindButtonByName(canvas, "QuitButton");
 
         if (playBtn != null)
         {
-            StyleButton(playBtn, new Vector2(0f, 25f), s_PlayBtnSprite, "<color=#38BDF8><b>PLAY</b></color>", new Color(0.22f, 0.74f, 0.97f));
+            StyleButton(playBtn, new Vector2(0f, 35f), s_PlayBtnSprite, "<color=#38BDF8><b>PLAY</b></color>", new Color(0.22f, 0.74f, 0.97f));
         }
+
+        StyleButton(tutorialBtn, new Vector2(0f, -35f), s_TutorialBtnSprite, "<color=#4ADE80><b>TUTORIAL</b></color>", new Color(0.22f, 0.88f, 0.45f));
 
         if (quitBtn != null)
         {
-            StyleButton(quitBtn, new Vector2(0f, -50f), s_QuitBtnSprite, "<color=#FF6B6B><b>QUIT</b></color>", new Color(1f, 0.42f, 0.42f));
+            StyleButton(quitBtn, new Vector2(0f, -105f), s_QuitBtnSprite, "<color=#FF6B6B><b>QUIT</b></color>", new Color(1f, 0.42f, 0.42f));
         }
     }
 
@@ -282,7 +394,8 @@ public class MainMenu : MonoBehaviour
         }
 
         // Componente interactivo de animación de escala y sonidos al pasar el mouse
-        MenuButtonHover hover = btn.gameObject.GetComponent<MenuButtonHover>() ?? btn.gameObject.AddComponent<MenuButtonHover>();
+        MenuButtonHover hover = btn.gameObject.GetComponent<MenuButtonHover>();
+        if (hover == null) hover = btn.gameObject.AddComponent<MenuButtonHover>();
         hover.Setup(btn);
     }
 
@@ -371,7 +484,11 @@ public class MainMenu : MonoBehaviour
             panelObj.transform.SetAsLastSibling();
         }
 
-        tutorialController = panelObj.GetComponent<TutorialPanelController>() ?? panelObj.AddComponent<TutorialPanelController>();
+        tutorialController = panelObj.GetComponent<TutorialPanelController>();
+        if (tutorialController == null)
+        {
+            tutorialController = panelObj.AddComponent<TutorialPanelController>();
+        }
         panelObj.SetActive(false);
     }
 
